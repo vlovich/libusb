@@ -540,6 +540,13 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
       break;
     }
 
+    (*(device))->GetDeviceVendor (device, &idVendor);
+    if (idVendor != 0x1f6f) {
+      usbi_dbg (ctx, "ignoring filtered-out vendor device %d. skipping device %d", idVendor, locationID);
+      ret = -1;
+      break;
+    }
+
     priv = (struct darwin_device_priv *)dev->os_priv;
 
     /* Set up request for device descriptor */
@@ -552,7 +559,6 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
 
     (*(device))->GetDeviceAddress (device, (USBDeviceAddress *)&address);
     (*(device))->GetDeviceProduct (device, &idProduct);
-    (*(device))->GetDeviceVendor (device, &idVendor);
     (*(device))->GetDeviceClass (device, &bDeviceClass);
     (*(device))->GetDeviceSubClass (device, &bDeviceSubClass);
 
