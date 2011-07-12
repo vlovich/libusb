@@ -47,12 +47,16 @@
 
 #include "darwin_usb.h"
 
-static mach_port_t  libusb_darwin_mp = 0; /* master port */
-static CFRunLoopRef libusb_darwin_acfl = NULL; /* async cf loop */
-static int initCount = 0;
+static volatile mach_port_t  libusb_darwin_mp = 0; /* master port */
+static volatile CFRunLoopRef libusb_darwin_acfl = NULL; /* async cf loop */
+static volatile int initCount = 0;
 
 /* async event thread */
 static pthread_t libusb_darwin_at;
+
+/* async event thread is ready */
+static pthread_mutex_t libusb_darwin_at_mutex;
+static pthread_cond_t libusb_darwin_at_ready;
 
 static int darwin_get_config_descriptor(struct libusb_device *dev, uint8_t config_index, unsigned char *buffer, size_t len, int *host_endian);
 static int darwin_claim_interface(struct libusb_device_handle *dev_handle, int iface);
@@ -322,6 +326,8 @@ static void *event_thread_main (void *arg0) {
 
   usbi_info (ctx, "thread ready to receive events");
 
+  pthread_cond_signal(&libusb_darwin_at_ready);
+
   /* run the runloop */
   CFRunLoopRun();
 
@@ -344,16 +350,34 @@ static int darwin_init(struct libusb_context *ctx) {
   if (!(initCount++)) {
     /* Create the master port for talking to IOKit */
     if (!libusb_darwin_mp) {
-      kresult = IOMasterPort (MACH_PORT_NULL, &libusb_darwin_mp);
+      kresult = IOMasterPort (MACH_PORT_NULL, (mach_port_t *)&libusb_darwin_mp);
 
       if (kresult != kIOReturnSuccess || !libusb_darwin_mp)
 	return darwin_to_libusb (kresult);
     }
 
+    pthread_mutex_init(&libusb_darwin_at_mutex, NULL);
+    pthread_cond_init(&libusb_darwin_at_ready, NULL);
+
+    pthread_mutex_lock(&libusb_darwin_at_mutex);
+
     pthread_create (&libusb_darwin_at, NULL, event_thread_main, (void *)ctx);
 
-    while (!libusb_darwin_acfl)
-      usleep (10);
+    do {
+      struct timeval tv;
+      struct timespec ts;
+      gettimeofday(&tv, NULL);
+      ts.tv_sec = tv.tv_sec + 0;
+      ts.tv_nsec = (tv.tv_usec + 500 * 1000) * 1000;
+      pthread_cond_timedwait(&libusb_darwin_at_ready, &libusb_darwin_at_mutex, &ts);
+      if (libusb_darwin_acfl)
+        break;
+    } while (1);
+	  
+    pthread_mutex_unlock(&libusb_darwin_at_mutex);
+	  
+    pthread_cond_destroy(&libusb_darwin_at_ready);
+    pthread_mutex_destroy(&libusb_darwin_at_mutex);
   }
 
   return 0;
