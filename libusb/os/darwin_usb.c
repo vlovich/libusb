@@ -258,15 +258,17 @@ static void darwin_devices_detached (void *ptr, io_iterator_t rem_devices) {
       continue;
 
     usbi_mutex_lock(&ctx->open_devs_lock);
-    list_for_each_entry(handle, &ctx->open_devs, list, struct libusb_device_handle) {
-      dpriv = (struct darwin_device_priv *)handle->dev->os_priv;
+    if (ctx->open_devs.next != ctx->open_devs.prev) {
+      list_for_each_entry(handle, &ctx->open_devs, list, struct libusb_device_handle) {
+        dpriv = (struct darwin_device_priv *)handle->dev->os_priv;
 
-      /* the device may have been opened several times. write to each handle's event descriptor */
-      if (dpriv->location == location  && handle->os_priv) {
-	priv  = (struct darwin_device_handle_priv *)handle->os_priv;
+        /* the device may have been opened several times. write to each handle's event descriptor */
+        if (dpriv->location == location  && handle->os_priv) {
+	  priv  = (struct darwin_device_handle_priv *)handle->os_priv;
 
-	message = MESSAGE_DEVICE_GONE;
-	write (priv->fds[1], &message, sizeof (message));
+              message = MESSAGE_DEVICE_GONE;
+              write (priv->fds[1], &message, sizeof (message));
+        }
       }
     }
 
