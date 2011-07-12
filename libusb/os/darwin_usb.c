@@ -58,6 +58,9 @@ static pthread_t libusb_darwin_at;
 static pthread_mutex_t libusb_darwin_at_mutex;
 static pthread_cond_t libusb_darwin_at_ready;
 
+static clock_serv_t clock_realtime;
+static clock_serv_t clock_monotonic;
+
 static int darwin_get_config_descriptor(struct libusb_device *dev, uint8_t config_index, unsigned char *buffer, size_t len, int *host_endian);
 static int darwin_claim_interface(struct libusb_device_handle *dev_handle, int iface);
 static int darwin_release_interface(struct libusb_device_handle *dev_handle, int iface);
@@ -346,7 +349,8 @@ static void *event_thread_main (void *arg0) {
 
 static int darwin_init(struct libusb_context *ctx) {
   IOReturn kresult;
-
+  host_name_port_t host_self; 
+	
   if (!(initCount++)) {
     /* Create the master port for talking to IOKit */
     if (!libusb_darwin_mp) {
@@ -355,6 +359,13 @@ static int darwin_init(struct libusb_context *ctx) {
       if (kresult != kIOReturnSuccess || !libusb_darwin_mp)
 	return darwin_to_libusb (kresult);
     }
+
+    /* create the clocks that will be used */
+	  
+    host_self = mach_host_self();
+    host_get_clock_service(host_self, CALENDAR_CLOCK, &clock_realtime);
+    host_get_clock_service(host_self, SYSTEM_CLOCK, &clock_monotonic);
+    mach_port_deallocate(mach_task_self(), host_self);
 
     pthread_mutex_init(&libusb_darwin_at_mutex, NULL);
     pthread_cond_init(&libusb_darwin_at_ready, NULL);
@@ -394,6 +405,8 @@ static void darwin_exit (void) {
       mach_port_deallocate(mach_task_self(), libusb_darwin_mp);
 
     libusb_darwin_mp = 0;
+    mach_port_deallocate(mach_task_self(), clock_realtime);
+    mach_port_deallocate(mach_task_self(), clock_monotonic);
   }
 }
 
@@ -1579,12 +1592,12 @@ static int darwin_clock_gettime(int clk_id, struct timespec *tp) {
 
   switch (clk_id) {
   case USBI_CLOCK_REALTIME:
-    /* CLOCK_REALTIME represents time since the epoch */
-    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &clock_ref);
+    /* CLOCK_REALTIME represents time since the epoch */		  
+    clock_ref = clock_realtime;
     break;
   case USBI_CLOCK_MONOTONIC:
     /* use system boot time as reference for the monotonic clock */
-    host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &clock_ref);
+    clock_ref = clock_monotonic;
     break;
   default:
     return LIBUSB_ERROR_INVALID_PARAM;
