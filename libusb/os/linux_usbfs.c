@@ -2080,6 +2080,7 @@ static int handle_control_completion(struct usbi_transfer *itransfer,
 		status = LIBUSB_TRANSFER_COMPLETED;
 		break;
 	case -ENOENT: /* cancelled */
+		status = LIBUSB_TRANSFER_CANCELLED;
 		break;
 	case -ESHUTDOWN:
 		usbi_dbg("device removed");
