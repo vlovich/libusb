@@ -2211,7 +2211,7 @@ static int op_sysfspath(struct libusb_device *dev, char *path, size_t *pathlen)
 	int r = LIBUSB_SUCCESS;
 
 	if (fd < 0) {
-		if (errno == EEXIST) {
+		if (errno == ENOENT) {
 			r = LIBUSB_ERROR_NO_DEVICE;
 			goto out;
 		}
