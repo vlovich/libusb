@@ -1616,6 +1616,8 @@ const struct usbi_os_backend darwin_backend = {
 
 	.clock_gettime = darwin_clock_gettime,
 
+	.get_portpath = NULL,
+
 	.device_priv_size = sizeof(struct darwin_device_priv),
 	.device_handle_priv_size = sizeof(struct darwin_device_handle_priv),
 	.transfer_priv_size = sizeof(struct darwin_transfer_priv),
