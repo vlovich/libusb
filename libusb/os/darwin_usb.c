@@ -288,6 +288,8 @@ static void *event_thread_main (void *arg0) {
   struct libusb_context *ctx = (struct libusb_context *)arg0;
   CFRunLoopRef runloop;
 
+  pthread_mutex_lock(&libusb_darwin_at_mutex);
+
   /* Tell the Objective-C garbage collector about this thread.
      This is required because, unlike NSThreads, pthreads are
      not automatically registered. Although we don't use
@@ -333,6 +335,8 @@ static void *event_thread_main (void *arg0) {
 
   pthread_cond_signal(&libusb_darwin_at_ready);
 
+  pthread_mutex_unlock(&libusb_darwin_at_mutex);
+
   /* run the runloop */
   CFRunLoopRun();
 
@@ -377,12 +381,7 @@ static int darwin_init(struct libusb_context *ctx) {
     pthread_create (&libusb_darwin_at, NULL, event_thread_main, (void *)ctx);
 
     do {
-      struct timeval tv;
-      struct timespec ts;
-      gettimeofday(&tv, NULL);
-      ts.tv_sec = tv.tv_sec + 0;
-      ts.tv_nsec = (tv.tv_usec + 500 * 1000) * 1000;
-      pthread_cond_timedwait(&libusb_darwin_at_ready, &libusb_darwin_at_mutex, &ts);
+      pthread_cond_wait(&libusb_darwin_at_ready, &libusb_darwin_at_mutex);
       if (libusb_darwin_acfl)
         break;
     } while (1);
