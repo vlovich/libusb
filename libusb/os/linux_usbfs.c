@@ -2203,6 +2203,42 @@ static int op_clock_gettime(int clk_id, struct timespec *tp)
   }
 }
 
+static int op_sysfspath(struct libusb_device *dev, char *path, size_t *pathlen)
+{
+	int fd = __open_sysfs_attr(dev, "descriptors");
+	size_t sysfslen;
+	struct linux_device_priv *priv = __device_priv(dev);
+	int r = LIBUSB_SUCCESS;
+
+	if (fd < 0) {
+		if (errno == ENOENT) {
+			r = LIBUSB_ERROR_NO_DEVICE;
+			goto out;
+		}
+
+		r = LIBUSB_ERROR_OTHER;
+
+		usbi_warn(DEVICE_CTX(dev),
+			"cannot open descriptors because r=%d,errno=%d", r, errno);
+		goto out;
+	}
+	close(fd);
+
+	sysfslen = strlen(priv->sysfs_dir);
+
+	strncpy(path, priv->sysfs_dir, *pathlen);
+	path[*pathlen] = 0;
+
+	if (sysfslen > *pathlen) {
+		r = LIBUSB_ERROR_OVERFLOW;
+	}
+
+	*pathlen = sysfslen;
+
+out:
+	return r;
+}
+
 #ifdef USBI_TIMERFD_AVAILABLE
 static clockid_t op_get_timerfd_clockid(void)
 {
@@ -2244,6 +2280,8 @@ const struct usbi_os_backend linux_usbfs_backend = {
 	.handle_events = op_handle_events,
 
 	.clock_gettime = op_clock_gettime,
+
+	.get_portpath = op_sysfspath,
 
 #ifdef USBI_TIMERFD_AVAILABLE
 	.get_timerfd_clockid = op_get_timerfd_clockid,

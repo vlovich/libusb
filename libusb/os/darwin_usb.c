@@ -579,6 +579,13 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
       break;
     }
 
+    (*(device))->GetDeviceVendor (device, &idVendor);
+    if (idVendor != 0x1f6f) {
+      usbi_dbg (ctx, "ignoring filtered-out vendor device %d. skipping device %d", idVendor, locationID);
+      ret = -1;
+      break;
+    }
+
     priv = (struct darwin_device_priv *)dev->os_priv;
 
     /* Set up request for device descriptor */
@@ -591,7 +598,6 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
 
     (*(device))->GetDeviceAddress (device, (USBDeviceAddress *)&address);
     (*(device))->GetDeviceProduct (device, &idProduct);
-    (*(device))->GetDeviceVendor (device, &idVendor);
     (*(device))->GetDeviceClass (device, &bDeviceClass);
     (*(device))->GetDeviceSubClass (device, &bDeviceSubClass);
 
@@ -599,6 +605,7 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
     /* according to Apple's documentation the device must be open for DeviceRequest but we may not be able to open some
      * devices and Apple's USB Prober doesn't bother to open the device before issuing a descriptor request */
     ret = (*(device))->DeviceRequest (device, &req);
+#if 0
     if (ret != kIOReturnSuccess) {
       int try_unsuspend = 1;
 #if DeviceVersion >= 320
@@ -626,6 +633,7 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
 
       (*device)->USBDeviceClose (device);
     }
+#endif
 
     if (ret != kIOReturnSuccess) {
       usbi_warn (ctx, "could not retrieve device descriptor: %s. skipping device", darwin_error_str (ret));
@@ -1646,6 +1654,8 @@ const struct usbi_os_backend darwin_backend = {
 	.handle_events = op_handle_events,
 
 	.clock_gettime = darwin_clock_gettime,
+
+	.get_portpath = NULL,
 
 	.device_priv_size = sizeof(struct darwin_device_priv),
 	.device_handle_priv_size = sizeof(struct darwin_device_handle_priv),

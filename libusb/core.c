@@ -846,6 +846,35 @@ void API_EXPORTED libusb_unref_device(libusb_device *dev)
 	}
 }
 
+/** \ingroup dev
+ * Get the path to the port (must always return the same path
+ * for all devices connected to the same port in a given topology (assuming
+ * topology doesn't change).
+ *
+ * \param dev the device to determine the path for
+ * \param path The output buffer that will hold the path
+ * \param pathlen How big the output buffer is, on return contains the actual path
+ * \returns 0 on success
+ * \returns LIBUSB_ERROR_INVALID_PARAM if any of the 3 parameters is null
+ * \returns LIBUSB_ERROR_NO_DEVICE if dev can't be found
+ * \returns LIBUSB_ERROR_OVERFLOW if the path is longer that the supplied buffer.
+ *                                pathlen in this case contains the length of the path
+ *                                if the buffer were long enough
+ * \returns LIBUSB_ERROR_NOT_SUPPORTED if cannot determine port path on this OS
+ */
+int API_EXPORTED libusb_get_portpath(libusb_device *dev, char *path,
+	size_t *pathlen)
+{
+	if (dev == NULL || path == NULL || pathlen == NULL) {
+		return LIBUSB_ERROR_INVALID_PARAM;
+	}
+
+	if (!usbi_backend->get_portpath)
+		return LIBUSB_ERROR_NOT_SUPPORTED;
+
+	return usbi_backend->get_portpath(dev, path, pathlen);
+}
+
 /*
  * Interrupt the iteration of the event handling thread, so that it picks
  * up the new fd.
