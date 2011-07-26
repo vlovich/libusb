@@ -180,6 +180,8 @@ static usb_device_t **usb_get_next_device (io_iterator_t deviceIterator, UInt32 
       break;
 
     usbi_dbg ("libusb/darwin.c usb_get_next_device: could not set up plugin for service: %s\n", darwin_error_str (result));
+
+    (void)IOObjectRelease(usbDevice);
   }
 
   if (!usbDevice)
@@ -980,6 +982,10 @@ static int darwin_claim_interface(struct libusb_device_handle *dev_handle, int i
   /* get an interface to the device's interface */
   kresult = IOCreatePlugInInterfaceForService (usbInterface, kIOUSBInterfaceUserClientTypeID,
 					       kIOCFPlugInInterfaceID, &plugInInterface, &score);
+
+  /* ignore release error */
+  (void)IOObjectRelease (usbInterface);
+
   if (kresult) {
     usbi_err (HANDLE_CTX (dev_handle), "IOCreatePlugInInterfaceForService: %s", darwin_error_str(kresult));
     return darwin_to_libusb (kresult);
@@ -990,20 +996,18 @@ static int darwin_claim_interface(struct libusb_device_handle *dev_handle, int i
     return LIBUSB_ERROR_NOT_FOUND;
   }
 
-  /* ignore release error */
-  (void)IOObjectRelease (usbInterface);
-
   /* Do the actual claim */
   kresult = (*plugInInterface)->QueryInterface(plugInInterface,
 					       CFUUIDGetUUIDBytes(kIOUSBInterfaceInterfaceID),
 					       (LPVOID)&cInterface->interface);
+
+  /* We no longer need the intermediate plug-in */
+  (*plugInInterface)->Release(plugInInterface);
+
   if (kresult || !cInterface->interface) {
     usbi_err (HANDLE_CTX (dev_handle), "QueryInterface: %s", darwin_error_str(kresult));
     return darwin_to_libusb (kresult);
   }
-
-  /* We no longer need the intermediate plug-in */
-  (*plugInInterface)->Release(plugInInterface);
 
   /* claim the interface */
   kresult = (*(cInterface->interface))->USBInterfaceOpen(cInterface->interface);
