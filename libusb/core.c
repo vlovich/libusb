@@ -1653,27 +1653,34 @@ err_unlock:
  */
 void API_EXPORTED libusb_exit(struct libusb_context *ctx)
 {
+	usbi_mutex_static_lock(&default_context_lock);
+	
 	usbi_dbg("");
 	USBI_GET_CONTEXT(ctx);
-
-	/* if working with default context, only actually do the deinitialization
-	 * if we're the last user */
+	
 	if (ctx == usbi_default_context) {
-		usbi_mutex_static_lock(&default_context_lock);
 		if (--default_context_refcnt > 0) {
 			usbi_dbg("not destroying default context");
 			usbi_mutex_static_unlock(&default_context_lock);
 			return;
 		}
-		usbi_dbg("destroying default context");
-		usbi_default_context = NULL;
+	} else {
+		/* not default context - no need to have this locked */
 		usbi_mutex_static_unlock(&default_context_lock);
 	}
-
+	/* careful - fall through case may or may not have the mutex still locked */
+	
+	usbi_mutex_lock(&ctx->open_devs_lock);
 	/* a little sanity check. doesn't bother with open_devs locking because
 	 * unless there is an application bug, nobody will be accessing this. */
 	if (!list_empty(&ctx->open_devs))
-		usbi_warn(ctx, "application left some devices open");
+		usbi_err(ctx, "application left some devices open");
+	usbi_mutex_unlock(&ctx->open_devs_lock);
+	
+	usbi_mutex_lock(&ctx->usb_devs_lock);
+	if (!list_empty(&ctx->usb_devs))
+		usbi_err(ctx, "application hasn't unreferenced all device handles before calling exit");
+	usbi_mutex_unlock(&ctx->usb_devs_lock);
 
 	usbi_io_exit(ctx);
 	if (usbi_backend->exit)
@@ -1682,6 +1689,22 @@ void API_EXPORTED libusb_exit(struct libusb_context *ctx)
 	usbi_mutex_destroy(&ctx->open_devs_lock);
 	usbi_mutex_destroy(&ctx->usb_devs_lock);
 	free(ctx);
+	
+	/* if working with default context, only actually do the deinitialization
+	 * if we're the last user */
+	if (ctx == usbi_default_context) {
+		if (--default_context_refcnt > 0) {
+			usbi_dbg("not destroying default context");
+			usbi_mutex_static_unlock(&default_context_lock);
+			return;
+		}
+		usbi_dbg("destroying default context");
+	}
+	
+	if (ctx == usbi_default_context) {
+		usbi_default_context = NULL;
+		usbi_mutex_static_unlock(&default_context_lock);
+	}
 }
 
 void usbi_log_v(struct libusb_context *ctx, enum usbi_log_level level,
