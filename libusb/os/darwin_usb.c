@@ -47,7 +47,6 @@
 
 #include "darwin_usb.h"
 
-static volatile mach_port_t  libusb_darwin_mp = 0; /* master port */
 static volatile CFRunLoopRef libusb_darwin_acfl = NULL; /* async cf loop */
 static volatile int initCount = 0;
 
@@ -158,7 +157,7 @@ static int ep_to_pipeRef(struct libusb_device_handle *dev_handle, uint8_t ep, ui
 }
 
 static int usb_setup_device_iterator (io_iterator_t *deviceIterator) {
-  return IOServiceGetMatchingServices(libusb_darwin_mp, IOServiceMatching(kIOUSBDeviceClassName), deviceIterator);
+  return IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching(kIOUSBDeviceClassName), deviceIterator);
 }
 
 static usb_device_t **usb_get_next_device (io_iterator_t deviceIterator, UInt32 *locationp) {
@@ -311,7 +310,7 @@ static void *event_thread_main (void *arg0) {
   CFRetain (runloop);
 
   /* add the notification port to the run loop */
-  libusb_notification_port     = IONotificationPortCreate (libusb_darwin_mp);
+  libusb_notification_port     = IONotificationPortCreate (kIOMasterPortDefault);
   libusb_notification_cfsource = IONotificationPortGetRunLoopSource (libusb_notification_port);
   CFRunLoopAddSource(CFRunLoopGetCurrent (), libusb_notification_cfsource, kCFRunLoopDefaultMode);
 
@@ -356,18 +355,9 @@ static void *event_thread_main (void *arg0) {
 }
 
 static int darwin_init(struct libusb_context *ctx) {
-  IOReturn kresult;
   host_name_port_t host_self; 
 	
   if (!(initCount++)) {
-    /* Create the master port for talking to IOKit */
-    if (!libusb_darwin_mp) {
-      kresult = IOMasterPort (MACH_PORT_NULL, (mach_port_t *)&libusb_darwin_mp);
-
-      if (kresult != kIOReturnSuccess || !libusb_darwin_mp)
-	return darwin_to_libusb (kresult);
-    }
-
     /* create the clocks that will be used */
 	  
     host_self = mach_host_self();
@@ -404,10 +394,7 @@ static void darwin_exit (void) {
     CFRunLoopStop (libusb_darwin_acfl);
     pthread_join (libusb_darwin_at, NULL);
 
-    if (libusb_darwin_mp)
-      mach_port_deallocate(mach_task_self(), libusb_darwin_mp);
 
-    libusb_darwin_mp = 0;
     mach_port_deallocate(mach_task_self(), clock_realtime);
     mach_port_deallocate(mach_task_self(), clock_monotonic);
   }
@@ -692,9 +679,6 @@ static int darwin_get_device_list(struct libusb_context *ctx, struct discovered_
   usb_device_t         **device;
   kern_return_t        kresult;
   UInt32               location;
-
-  if (!libusb_darwin_mp)
-    return LIBUSB_ERROR_INVALID_PARAM;
 
   kresult = usb_setup_device_iterator (&deviceIterator);
   if (kresult != kIOReturnSuccess)
