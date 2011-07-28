@@ -292,6 +292,7 @@ static void *event_thread_main (void *arg0) {
   IOReturn kresult;
   struct libusb_context *ctx = (struct libusb_context *)arg0;
   CFRunLoopRef runloop;
+  int retry_cnt = 0;
 
   pthread_mutex_lock(&libusb_darwin_at_mutex);
 
@@ -314,8 +315,21 @@ static void *event_thread_main (void *arg0) {
   CFRetain (runloop);
 
   /* add the notification port to the run loop */
+retry:
   libusb_notification_port     = IONotificationPortCreate (kIOMasterPortDefault);
   libusb_notification_cfsource = IONotificationPortGetRunLoopSource (libusb_notification_port);
+  if (libusb_notification_cfsource == NULL) {
+          retry_cnt++;
+          fprintf(stderr, "%s:%d CFSource is null on notification port %p created from default master port. retry = %d...", __FILE__, __LINE__, libusb_notification_port, retry_cnt);
+          IONotificationPortDestroy (libusb_notification_port);
+          if (retry_cnt <= 100) {
+            usleep(500);
+	    fprintf(stderr, "finished sleeping - retrying\n");
+            goto retry;
+	  }
+          abort();
+  }
+  CFRetain (libusb_notification_cfsource);
   CFRunLoopAddSource(CFRunLoopGetCurrent (), libusb_notification_cfsource, kCFRunLoopDefaultMode);
 
   /* create notifications for removed devices */
