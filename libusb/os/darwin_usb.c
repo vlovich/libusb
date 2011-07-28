@@ -50,6 +50,10 @@
 static volatile CFRunLoopRef libusb_darwin_acfl = NULL; /* async cf loop */
 static volatile int initCount = 0;
 
+/* TODO: get rid of this variable (& associated code).  Instead modify all
+ * platforms to accept the context as part of darwin exit */
+static volatile int init_debug_level = 0;
+
 /* async event thread */
 static pthread_t libusb_darwin_at;
 
@@ -343,13 +347,18 @@ static void *event_thread_main (void *arg0) {
 
   usbi_info (ctx, "thread exiting");
 
+  libusb_darwin_acfl = NULL;
+
+  /* notify that we're stopped */
+  pthread_mutex_lock(&libusb_darwin_at_mutex);
+  pthread_cond_signal(&libusb_darwin_at_ready);
+  pthread_mutex_unlock(&libusb_darwin_at_mutex);
+
   /* delete notification port */
   IONotificationPortDestroy (libusb_notification_port);
   IOObjectRelease (libusb_rem_device_iterator);
 
   CFRelease (runloop);
-
-  libusb_darwin_acfl = NULL;
 
   pthread_exit (NULL);
 }
@@ -382,18 +391,69 @@ static int darwin_init(struct libusb_context *ctx) {
 	  
     pthread_cond_destroy(&libusb_darwin_at_ready);
     pthread_mutex_destroy(&libusb_darwin_at_mutex);
+
+    init_debug_level = ctx->debug;
   }
 
   return 0;
 }
 
 static void darwin_exit (void) {
+  const int thread_poll_interval_ms = 10;
+  const int thread_poll_timeout_ms = 500;
+  const int max_fail_exit_cnt = thread_poll_timeout_ms / thread_poll_interval_ms;
+  int fail_exit_cnt = -1;
+  struct libusb_context fake_ctx = { .debug = init_debug_level };
+
   if (!(--initCount)) {
 
     /* stop the async runloop */
-    CFRunLoopStop (libusb_darwin_acfl);
-    pthread_join (libusb_darwin_at, NULL);
+    pthread_mutex_init(&libusb_darwin_at_mutex, NULL);
+    pthread_cond_init(&libusb_darwin_at_ready, NULL);
 
+    pthread_mutex_lock(&libusb_darwin_at_mutex);
+
+    do {
+      struct timeval tv;
+      struct timespec ts;
+
+      if (fail_exit_cnt) {
+        usbi_warn (&fake_ctx, "darwin event thread failed to stop - have polled for %d ms so far", fail_exit_cnt * thread_poll_interval_ms);
+      }
+
+      /* run loops may have accumulated - keep stopping until we get a notification
+       * that it's null.
+       * note that the mutex above protects this data access (the condition auto re-aquires the
+       * mutex before returning)
+       */
+      CFRunLoopStop (libusb_darwin_acfl);
+
+      /* wait for up to 10 milliseconds before telling the run loop to stop again */
+      gettimeofday(&tv, NULL);
+      ts.tv_sec = tv.tv_sec;
+      ts.tv_nsec = (tv.tv_usec + thread_poll_interval_ms * 1000) * 1000;
+
+      pthread_cond_timedwait(&libusb_darwin_at_ready, &libusb_darwin_at_mutex, &ts);
+      fail_exit_cnt++;
+
+      /* wait up to 500 milliseconds total for the target thread to stop */
+    } while (libusb_darwin_acfl && fail_exit_cnt < max_fail_exit_cnt);
+
+    /* thread failed to start - forcefully kill it */
+    if (libusb_darwin_acfl) {
+      fail_exit_cnt = -1;
+    }
+
+    pthread_mutex_unlock(&libusb_darwin_at_mutex);
+
+    pthread_cond_destroy(&libusb_darwin_at_ready);
+    pthread_mutex_destroy(&libusb_darwin_at_mutex);
+
+    if (fail_exit_cnt == -1) {
+      usbi_err (&fake_ctx, "darwin event thread failed to exit on it's own within %d ms - cancelling thread", thread_poll_timeout_ms);
+      pthread_cancel(libusb_darwin_at);
+    }
+    pthread_join (libusb_darwin_at, NULL);
 
     mach_port_deallocate(mach_task_self(), clock_realtime);
     mach_port_deallocate(mach_task_self(), clock_monotonic);
