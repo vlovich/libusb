@@ -724,7 +724,7 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
 
     /* save our location, we'll need this later */
     priv->location = locationID;
-    snprintf(priv->sys_path, 20, "%03i-%04x-%04x-%02x-%02x", address, idVendor, idProduct, bDeviceClass, bDeviceSubClass);
+    snprintf(priv->sys_path, 28, "%08x-%03i", locationID, address);
 
     ret = usbi_sanitize_device (dev);
     if (ret < 0)
@@ -1682,6 +1682,25 @@ static int darwin_clock_gettime(int clk_id, struct timespec *tp) {
   return 0;
 }
 
+static int darwin_get_portpath(struct libusb_device *dev, char *path, size_t *pathlen)
+{
+  struct darwin_device_priv *priv = (struct darwin_device_priv *)dev->os_priv;
+  size_t syspathlen;
+  int r = LIBUSB_SUCCESS;
+
+  syspathlen = strlen(priv->sys_path);
+
+  strncpy(path, priv->sys_path, *pathlen);
+  path[*pathlen] = 0;
+
+  if (syspathlen > *pathlen) {
+    r = LIBUSB_ERROR_OVERFLOW;
+  }
+
+  *pathlen = syspathlen;
+  return r;
+}
+
 const struct usbi_os_backend darwin_backend = {
 	.name = "Darwin",
 	.init = darwin_init,
@@ -1716,7 +1735,7 @@ const struct usbi_os_backend darwin_backend = {
 
 	.clock_gettime = darwin_clock_gettime,
 
-	.get_portpath = NULL,
+	.get_portpath = darwin_get_portpath,
 
 	.device_priv_size = sizeof(struct darwin_device_priv),
 	.device_handle_priv_size = sizeof(struct darwin_device_handle_priv),

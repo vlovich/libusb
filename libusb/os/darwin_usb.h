@@ -124,7 +124,7 @@ typedef IONotificationPortRef io_notification_port_t;
 struct darwin_device_priv {
   IOUSBDeviceDescriptor dev_descriptor;
   UInt32                location;
-  char                  sys_path[21];
+  char                  sys_path[29];
   usb_device_t        **device;
   int                   open_count;
   UInt8                 first_config, active_config;
