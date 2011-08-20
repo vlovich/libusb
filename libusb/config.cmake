@@ -4,7 +4,10 @@ include(CheckTypeSize)
 include(FindThreads)
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
-	check_cxx_compiler_flag("-fvisibility=hidden" HAVE_VISIBILITY)
+	if (NOT MINGW)
+		# mingw appears to print a bunch of warnings about this
+		check_cxx_compiler_flag("-fvisibility=hidden" HAVE_VISIBILITY)
+	endif()
 	check_cxx_compiler_flag("-Wno-pointer-sign" HAVE_WARN_NO_POINTER_SIGN)
 
 	set(_GNU_SOURCE 1 CACHE INTERNAL "" FORCE)
