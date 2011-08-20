@@ -12,7 +12,6 @@ set (LIBUSB_COMMON
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/os)
 
-message("LIBUSB_LIBRARIES=${LIBUSB_LIBRARIES}")
 # The CLEAN_DIRECT_OUTPUT property setting can be removed once CMake >= 2.8.4
 if (WITH_SHARED)
 	add_library(usb-1.0
@@ -22,6 +21,9 @@ if (WITH_SHARED)
 	)
 	set_target_properties(usb-1.0 PROPERTIES
 		CLEAN_DIRECT_OUTPUT 1
+		PUBLIC_HEADER libusb.h
+		VERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
+		SOVERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
 	)
 
 	if (DEFINED LIBUSB_LIBRARIES)
@@ -30,6 +32,8 @@ if (WITH_SHARED)
 			${LIBUSB_LIBRARIES}
 		)
 	endif()
+
+	list(APPEND LIBUSB_LIBTARGETS usb-1.0)
 endif()
 
 if (WITH_STATIC)
@@ -43,6 +47,9 @@ if (WITH_STATIC)
 		PREFIX "lib"
 		OUTPUT_NAME "usb-1.0"
 		CLEAN_DIRECT_OUTPUT 1
+		PUBLIC_HEADER libusb.h
+		VERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
+		SOVERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
 	)
 
 	if (DEFINED LIBUSB_LIBRARIES)
@@ -50,4 +57,14 @@ if (WITH_STATIC)
 			${LIBUSB_LIBRARIES}
 		)
 	endif()
+
+	list(APPEND LIBUSB_LIBTARGETS usb-1.0-static)
 endif()
+
+install(TARGETS ${LIBUSB_LIBTARGETS} EXPORT libusb-1
+	PUBLIC_HEADER DESTINATION include/libusb-1.0
+	ARCHIVE DESTINATION lib
+	LIBRARY DESTINATION lib
+	RUNTIME DESTINATION lib
+)
+#install(EXPORT libusb-1 DESTINATION lib/libusb)
