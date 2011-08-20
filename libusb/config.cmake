@@ -5,11 +5,30 @@ include(FindThreads)
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
 	check_cxx_compiler_flag("-fvisibility=hidden" HAVE_VISIBILITY)
+	check_cxx_compiler_flag("-Wno-pointer-sign" HAVE_WARN_NO_POINTER_SIGN)
+
 	set(_GNU_SOURCE 1 CACHE INTERNAL "" FORCE)
 
+	unset(ADDITIONAL_CC_FLAGS)
+
 	if (HAVE_VISIBILITY)
-		append_compiler_flags("-fvisibility=hidden")
+		list(APPEND ADDITIONAL_CC_FLAGS -fvisibility=hidden)
 	endif()
+
+	if (HAVE_WARN_NO_POINTER_SIGN)
+		list(APPEND ADDITIONAL_CC_FLAGS -Wno-pointer-sign)
+	endif()
+
+	append_compiler_flags(
+		-std=gnu99
+		-Wall
+		-Wundef
+		-Wunused
+		-Wstrict-prototypes
+		-Werror-implicit-function-declaration
+		-Wshadow
+		${ADDITIONAL_CC_FLAGS}
+	)
 else(MSVC)
 	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 	append_compiler_flags(/Wp64)

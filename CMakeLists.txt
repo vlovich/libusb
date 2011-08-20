@@ -29,8 +29,10 @@ set(LIBUSB_MINOR 0)
 set(LIBUSB_MICRO 8)
 
 macro(append_compiler_flags)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ARGN}")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ARGN}")
+	foreach(FLAG IN ITEMS ${ARGN})
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${FLAG}")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${FLAG}")
+	endforeach()
 endmacro()
 
 if (WITH_DOCS)
