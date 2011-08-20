@@ -35,4 +35,8 @@ if (WITH_DOCS)
 	add_subdirectory(docs)
 endif ()
 
+if (WITH_EXAMPLES)
+	add_subdirectory(examples)
+endif()
+
 add_subdirectory(libusb)
