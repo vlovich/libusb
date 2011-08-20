@@ -54,6 +54,8 @@ elseif (UNIX)
 			linux_usbfs.c
 			threads_posix.c
 		)
+
+		list(APPEND LIBUSB_LIBRARIES rt)
 	endif()
 endif()
 
