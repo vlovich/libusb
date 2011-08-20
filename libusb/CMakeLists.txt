@@ -73,3 +73,19 @@ install(TARGETS ${LIBUSB_LIBTARGETS} EXPORT libusb-1
 	RUNTIME DESTINATION lib
 )
 install(EXPORT libusb-1 DESTINATION lib/libusb)
+
+foreach(LIB IN LISTS LIBUSB_LIBRARIES)
+	if (LIB MATCHES .framework$)
+		get_filename_component(LIB "${LIB}" NAME)
+		set(LIB "-Wl,-framework,${LIB}")
+	elseif (LIB MATCHES .dylib$)
+		get_filename_component(LIBDIR "${LIB}" PATH)
+		get_filename_component(LIB "${LIB}" NAME)
+		string(REGEX REPLACE "lib(.*).dylib$" "\\1" LIB "${LIB}")
+		set(LIB "-L${LIBDIR} -l${LIB}")
+	endif()
+	set(LIBUSB_LIB_DEPENDS "${LIBUSB_LIB_DEPENDS} ${LIB}")
+endforeach()
+
+configure_file(libusb-1.0.pc.cmake "${CMAKE_CURRENT_BINARY_DIR}/libusb-1.0.pc" @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libusb-1.0.pc" DESTINATION lib/pkgconfig)
