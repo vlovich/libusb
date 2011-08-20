@@ -8,8 +8,6 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
 
 project(libusb)
 
-include(CMakeDependentOption)
-
 option(WITH_SHARED "Build a shared library" ON)
 option(WITH_STATIC "Build a static library" OFF)
 option(WITH_DOCS "Build the documentation" OFF)
@@ -17,12 +15,10 @@ option(WITH_DOCS "Build the documentation" OFF)
 option(WITH_DEBUG_LOG "enable debug logging" OFF)
 
 # if debug logging is enabled, by default enable logging
-cmake_dependent_option(WITH_LOGGING "if false, disable all logging" ON "WITH_DEBUG_LOG" OFF)
-
-option(WITH_MAINTAINER_MODE "enable rules and dependencies not useful (and sometimes confusing) to the casual installer" OFF)
+option(WITH_LOGGING "if false, disable all logging" ${WITH_DEBUG_LOG})
 
 # enable examples by default if building with maintainer mode
-cmake_dependent_option(WITH_EXAMPLES "build example applications" ON "WITH_MAINTAINER_MODE" OFF)
+option(WITH_EXAMPLES "build example applications" ${WITH_MAINTAINER_MODE})
 
 set(LIBUSB_MAJOR 1)
 set(LIBUSB_MINOR 0)
