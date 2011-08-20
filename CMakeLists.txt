@@ -15,7 +15,7 @@ option(WITH_DOCS "Build the documentation" OFF)
 option(WITH_DEBUG_LOG "enable debug logging" OFF)
 
 # if debug logging is enabled, by default enable logging
-option(WITH_LOGGING "if false, disable all logging" ${WITH_DEBUG_LOG})
+option(WITH_LOGGING "if false, disable all logging" ON)
 
 # enable examples by default if building with maintainer mode
 option(WITH_EXAMPLES "build example applications" ${WITH_MAINTAINER_MODE})
