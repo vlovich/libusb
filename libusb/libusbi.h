@@ -856,6 +856,12 @@ struct usbi_os_backend {
 	clockid_t (*get_timerfd_clockid)(void);
 #endif
 
+	/** Get the unique path for the given device that describes the topology
+	 *
+	 * Return 0 on success, or a LIBSUBS_ERROR code on failure.
+	 */
+	int (*get_portpath)(struct libusb_device *device, char *path, size_t *pathlen);
+
 	/* Number of bytes to reserve for per-device private backend data.
 	 * This private data area is accessible through the "os_priv" field of
 	 * struct libusb_device. */

@@ -2285,6 +2285,8 @@ const struct usbi_os_backend linux_usbfs_backend = {
 
 	.clock_gettime = op_clock_gettime,
 
+	.get_portpath = NULL,
+
 #ifdef USBI_TIMERFD_AVAILABLE
 	.get_timerfd_clockid = op_get_timerfd_clockid,
 #endif

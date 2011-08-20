@@ -2149,6 +2149,9 @@ const struct usbi_os_backend windows_backend = {
 	windows_handle_events,
 
 	windows_clock_gettime,
+
+	NULL, // get_portpath
+
 #if defined(USBI_TIMERFD_AVAILABLE)
 	NULL,
 #endif
