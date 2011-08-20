@@ -1,6 +1,7 @@
 add_subdirectory(os)
 
 include(config.cmake)
+include(FindThreads)
 
 set (LIBUSB_COMMON
 	core.c
@@ -11,6 +12,10 @@ set (LIBUSB_COMMON
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/os)
+
+if (CMAKE_THREAD_LIBS_INIT)
+	list(APPEND LIBUSB_LIBRARIES ${CMAKE_THREAD_LIBS_INIT})
+endif()
 
 # The CLEAN_DIRECT_OUTPUT property setting can be removed once CMake >= 2.8.4
 if (WITH_SHARED)
