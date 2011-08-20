@@ -72,4 +72,4 @@ install(TARGETS ${LIBUSB_LIBTARGETS} EXPORT libusb-1
 	LIBRARY DESTINATION lib
 	RUNTIME DESTINATION lib
 )
-#install(EXPORT libusb-1 DESTINATION lib/libusb)
+install(EXPORT libusb-1 DESTINATION lib/libusb)
