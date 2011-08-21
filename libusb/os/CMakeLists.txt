@@ -11,6 +11,8 @@ if (WIN32 OR CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 	if (CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 		message(STATUS "Detected cygwin")
 		set(PTHREADS_ENABLED TRUE)
+	else()
+		set(LIBUSB_SHARED_PREFIX "lib")
 	endif()
 
 	set(PLATFORM_SRC
