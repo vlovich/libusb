@@ -8,6 +8,13 @@ endif()
 if (WIN32 OR CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 	set(OS_WINDOWS 1 CACHE INTERNAL "controls config.h macro definition" FORCE)
 
+	# Enable MingW support for RC language (for CMake pre-2.8)
+	if (MINGW)
+		set(CMAKE_RC_COMPILER_INIT windres)
+		set(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <FLAGS> -O coff <DEFINES> -i <SOURCE> -o <OBJECT>")
+	endif()
+	enable_language(RC)
+
 	if (CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 		message(STATUS "Detected cygwin")
 		set(PTHREADS_ENABLED TRUE)
