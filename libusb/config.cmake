@@ -1,7 +1,6 @@
 include(CheckCXXCompilerFlag)
 include(CheckIncludeFiles)
 include(CheckTypeSize)
-include(FindThreads)
 
 if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX)
 	if (NOT MINGW)
@@ -39,10 +38,6 @@ endif()
 
 check_include_files(sys/timerfd.h USBI_TIMERFD_AVAILABLE)
 check_type_size(struct timespec STRUCT_TIMESPEC)
-
-if (CMAKE_USE_PTHREADS_INIT)
-	set(THREADS_POSIX TRUE CACHE INTERNAL "use pthreads" FORCE)
-endif()
 
 if (HAVE_VISIBILITY)
 	set(DEFAULT_VISIBILITY "__attribute__((visibility(\"default\")))" CACHE INTERNAL "visibility attribute to function decl" FORCE)
