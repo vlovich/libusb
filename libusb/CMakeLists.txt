@@ -8,6 +8,7 @@ set (LIBUSB_COMMON
 	descriptor.c
 	io.c
 	sync.c
+	libusb-1.0.rc
 )
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
