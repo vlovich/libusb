@@ -1,7 +1,8 @@
-if (WIN32 OR ${CMAKE_SYSTEM_NAME} MATCHES "Cygwin")
+if (WIN32 OR CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 	set(OS_WINDOWS 1 CACHE INTERNAL "controls config.h macro definition" FORCE)
 
-	if (${CMAKE_SYSTEM_NAME} MATCHES "Cygwin")
+	if (CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
+		message(STATUS "Detected cygwin")
 		set(THREADS_POSIX 1 CACHE INTERNAL "controls config.h macro definition" FORCE)
 	endif()
 
