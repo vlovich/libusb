@@ -33,6 +33,13 @@ macro(append_compiler_flags)
 	endforeach()
 endmacro()
 
+# Enable MingW support for RC language (for CMake pre-2.8)
+if (MINGW)
+	set(CMAKE_RC_COMPILER_INIT windres)
+	enable_language(RC)
+	set(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <FLAGS> -O coff <DEFINES> -i <SOURCE> -o <OBJECT>")
+endif()
+
 if (WITH_DOCS)
 	add_subdirectory(docs)
 endif ()
