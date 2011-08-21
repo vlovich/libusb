@@ -1,9 +1,16 @@
+include(FindThreads)
+
+set(PTHREADS_ENABLED FALSE)
+if (CMAKE_USE_PTHREADS_INIT)
+	set(PTHREADS_ENABLED TRUE)
+endif()
+
 if (WIN32 OR CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 	set(OS_WINDOWS 1 CACHE INTERNAL "controls config.h macro definition" FORCE)
 
 	if (CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 		message(STATUS "Detected cygwin")
-		set(THREADS_POSIX 1 CACHE INTERNAL "controls config.h macro definition" FORCE)
+		set(PTHREADS_ENABLED TRUE)
 	endif()
 
 	set(PLATFORM_SRC
@@ -74,3 +81,8 @@ endforeach()
 # libusb parts know what the platform bits are supposed to be
 set(LIBUSB_PLATFORM ${LIBUSB_PLATFORM} PARENT_SCOPE)
 set(LIBUSB_LIBRARIES ${LIBUSB_LIBRARIES} PARENT_SCOPE)
+
+if (WITHOUT_PTHREADS)
+	set(PTHREADS_ENABLED FALSE)
+endif()
+set(THREADS_POSIX ${PTHREADS_ENABLED} CACHE INTERNAL "use pthreads" FORCE)
