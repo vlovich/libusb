@@ -18,20 +18,24 @@ if (WIN32 OR CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 	if (CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
 		message(STATUS "Detected cygwin")
 		set(PTHREADS_ENABLED TRUE)
-	else()
-		set(LIBUSB_SHARED_PREFIX "lib")
+		set(WITHOUT_POLL_H TRUE CACHE INTERNAL "Disable using poll.h even if it's available - use windows poll instead fo cygwin's" FORCE)
 	endif()
 
-	set(PLATFORM_SRC
+	list(APPEND PLATFORM_SRC
 		poll_windows.c
-		threads_windows.c
 		windows_usb.c
 	)
+
+	if (PTHREADS_ENABLED AND NOT WITHOUT_PTHREADS)
+		list(APPEND PLATFORM_SRC threads_posix)
+	else()
+		list(APPEND PLATFORM_SRC threads_windows.c)
+	endif()
 elseif (APPLE)
 	# Apple != OSX alone
 	set(OS_DARWIN 1 CACHE INTERNAL "controls config.h macro definition" FORCE)
 
-	if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+	if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
 		set(PLATFORM_SRC
 			darwin_usb.c
 			threads_posix.c
@@ -64,7 +68,7 @@ int main()
 	endif()
 elseif (UNIX)
 	# Unix is for all *NIX systems including OSX
-	if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+	if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 		set(OS_LINUX 1 CACHE INTERNAL "controls config.h macro definition" FORCE)
 
 		set(PLATFORM_SRC

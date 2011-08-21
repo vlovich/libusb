@@ -30,8 +30,17 @@ if (WITH_SHARED)
 		PUBLIC_HEADER libusb.h
 		PREFIX "${LIBUSB_SHARED_PREFIX}"
 		VERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
-		SOVERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
 	)
+
+	if (OS_WINDOWS)
+		set_target_properties(usb-1.0 PROPERTIES
+			OUTPUT_NAME "libusb-1.0"
+		)
+	else()
+		set_target_properties(usb-1.0 PROPERTIES
+			SOVERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
+		)
+	endif()
 
 	if (DEFINED LIBUSB_LIBRARIES)
 		message("Linking shared library against ${LIBUSB_LIBRARIES}")
