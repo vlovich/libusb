@@ -8,6 +8,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
 
 project(libusb)
 
+message(WARNING "The CMake build system is experimental at the moment.  Support may or may not be provided on the libusb-devel@sourceforge.net mailing list")
+
 option(WITH_SHARED "Build a shared library" ON)
 option(WITH_STATIC "Build a static library" OFF)
 option(WITH_DOCS "Build the documentation" OFF)
@@ -32,8 +34,6 @@ macro(append_compiler_flags)
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${FLAG}")
 	endforeach()
 endmacro()
-
-message(WARNING "The CMake build system is experimental at the moment.  Support may or may not be provided on the libusb-devel@sourceforge.net mailing list")
 
 if (WITH_DOCS)
 	add_subdirectory(docs)
