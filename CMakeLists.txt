@@ -8,7 +8,10 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
 
 project(libusb)
 
-message(WARNING "The CMake build system is experimental at the moment.  Support may or may not be provided on the libusb-devel@sourceforge.net mailing list")
+option(WITHOUT_EXPERIMENTAL_WARNING "Disable the warning that CMake build is experimental whenever CMake is run" ON)
+if (NOT WITHOUT_EXPERIMENTAL_WARNING)
+	message(WARNING "The CMake build system is experimental at the moment.  Support may or may not be provided on the libusb-devel@sourceforge.net mailing list")
+endif()
 
 option(WITH_SHARED "Build a shared library" ON)
 option(WITH_STATIC "Build a static library" OFF)
