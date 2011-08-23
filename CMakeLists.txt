@@ -33,6 +33,8 @@ macro(append_compiler_flags)
 	endforeach()
 endmacro()
 
+message(WARNING "The CMake build system is experimental at the moment.  Support may or may not be provided on the libusb-devel@sourceforge.net mailing list")
+
 if (WITH_DOCS)
 	add_subdirectory(docs)
 endif ()
