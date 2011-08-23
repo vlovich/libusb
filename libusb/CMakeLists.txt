@@ -9,6 +9,7 @@ set (LIBUSB_COMMON
 	io.c
 	sync.c
 	libusb-1.0.rc
+	libusb-1.0.def
 )
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
@@ -25,22 +26,19 @@ if (WITH_SHARED)
 		${LIBUSB_COMMON}
 		${LIBUSB_PLATFORM}
 	)
+
+	if (MSVC)
+		set_target_properties(usb-1.0 PROPERTIES PREFIX "lib")
+		set_target_properties(usb-1.0 PROPERTIES IMPORT_PREFIX "lib")
+		set_target_properties(usb-1.0 PROPERTIES IMPORT_SUFFIX ".dll.lib")
+	endif()
+
 	set_target_properties(usb-1.0 PROPERTIES
 		CLEAN_DIRECT_OUTPUT 1
 		PUBLIC_HEADER libusb.h
-		PREFIX "${LIBUSB_SHARED_PREFIX}"
 		VERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
+		SOVERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
 	)
-
-	if (OS_WINDOWS)
-		set_target_properties(usb-1.0 PROPERTIES
-			OUTPUT_NAME "libusb-1.0"
-		)
-	else()
-		set_target_properties(usb-1.0 PROPERTIES
-			SOVERSION "${LIBUSB_MAJOR}.${LIBUSB_MINOR}.${LIBUSB_MICRO}"
-		)
-	endif()
 
 	if (DEFINED LIBUSB_LIBRARIES)
 		message("Linking shared library against ${LIBUSB_LIBRARIES}")
