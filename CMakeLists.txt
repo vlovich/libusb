@@ -31,6 +31,10 @@ set(LIBUSB_MAJOR 1)
 set(LIBUSB_MINOR 0)
 set(LIBUSB_MICRO 8)
 
+if (APPLE)
+	set(CMAKE_OSX_ARCHITECTURES "${CMAKE_OSX_ARCHITECTURES}" CACHE STRING "The architectures to build on OSX")
+endif()
+
 macro(append_compiler_flags)
 	foreach(FLAG IN ITEMS ${ARGN})
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${FLAG}")
