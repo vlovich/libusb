@@ -27,6 +27,8 @@ option(WITH_EXAMPLES "build example applications" ${WITH_MAINTAINER_MODE})
 
 option(WITHOUT_PTHREADS "force pthreads to not be used.  if on, then they are used based on detection logic" OFF)
 
+option(WITH_NONSTANDARD_DLL_NAME "use nonstandard dll name libusb-1.0.dll when building via Visual Studio. could cause problems with other CMake projects finding the dll" ON)
+
 set(LIBUSB_MAJOR 1)
 set(LIBUSB_MINOR 0)
 set(LIBUSB_MICRO 8)

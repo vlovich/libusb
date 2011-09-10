@@ -27,7 +27,7 @@ if (WITH_SHARED)
 		${LIBUSB_PLATFORM}
 	)
 
-	if (MSVC)
+	if (MSVC AND WITH_NONSTANDARD_DLL_NAME)
 		set_target_properties(usb-1.0 PROPERTIES PREFIX "lib")
 		set_target_properties(usb-1.0 PROPERTIES IMPORT_PREFIX "lib")
 		set_target_properties(usb-1.0 PROPERTIES IMPORT_SUFFIX ".dll.lib")
