@@ -84,6 +84,28 @@ set srcPath=examples\lsusb_ddkbuild\obj%BUILD_ALT_DIR%\%cpudir%
 copy %srcPath%\lsusb.exe %dstPath%\examples
 copy %srcPath%\lsusb.pdb %dstPath%\examples
 
+@echo off
+
+if exist examples\xusb_ddkbuild goto md8
+md examples\xusb_ddkbuild
+:md8
+
+cd examples\xusb_ddkbuild
+copy ..\..\msvc\xusb_sources sources >NUL 2>&1
+@echo on
+build -cwgZ
+@echo off
+if errorlevel 1 goto buildxusberror
+cd ..\..
+
+set srcPath=examples\xusb_ddkbuild\obj%BUILD_ALT_DIR%\%cpudir%
+@echo on
+
+copy %srcPath%\xusb.exe %dstPath%\examples
+copy %srcPath%\xusb.pdb %dstPath%\examples
+
+@echo off
+
 cd msvc
 goto done
 
@@ -96,6 +118,11 @@ goto done
 :buildlsusberror
 cd ..\..\msvc
 echo lsusb build failed
+goto done
+
+:buildxusberror
+cd ..\..\msvc
+echo xusb build failed
 goto done
 
 :usage

@@ -37,6 +37,9 @@
 #include <fcntl.h>
 #include <process.h>
 #include <stdio.h>
+// In case this file is compiled as C++ under mingw, we need to define those
+#define __STDC_FORMAT_MACROS
+#define __STDC_CONSTANT_MACROS
 #include <inttypes.h>
 #include <objbase.h>
 #include <winioctl.h>
@@ -60,6 +63,8 @@ extern void usbi_fd_notification(struct libusb_context *ctx);
 static int windows_get_active_config_descriptor(struct libusb_device *dev, unsigned char *buffer, size_t len, int *host_endian);
 static int windows_clock_gettime(int clk_id, struct timespec *tp);
 unsigned __stdcall windows_clock_gettime_threaded(void* param);
+// Common calls
+static int common_configure_endpoints(struct libusb_device_handle *dev_handle, int iface);
 // WinUSB API prototypes
 static int winusb_init(struct libusb_context *ctx);
 static int winusb_exit(void);
@@ -76,6 +81,23 @@ static int winusb_abort_transfers(struct usbi_transfer *itransfer);
 static int winusb_abort_control(struct usbi_transfer *itransfer);
 static int winusb_reset_device(struct libusb_device_handle *dev_handle);
 static int winusb_copy_transfer_data(struct usbi_transfer *itransfer, uint32_t io_size);
+// libusbK API prototypes
+static int libusbk_init(struct libusb_context *ctx);
+static int libusbk_exit(void);
+static int libusbk_open(struct libusb_device_handle *dev_handle);
+static void libusbk_close(struct libusb_device_handle *dev_handle);
+static int libusbk_configure_endpoints(struct libusb_device_handle *dev_handle, int iface);
+static int libusbk_configure_endpoints(struct libusb_device_handle *dev_handle, int iface);
+static int libusbk_claim_interface(struct libusb_device_handle *dev_handle, int iface);
+static int libusbk_release_interface(struct libusb_device_handle *dev_handle, int iface);
+static int libusbk_submit_control_transfer(struct usbi_transfer *itransfer);
+static int libusbk_set_interface_altsetting(struct libusb_device_handle *dev_handle, int iface, int altsetting);
+static int libusbk_submit_bulk_transfer(struct usbi_transfer *itransfer);
+static int libusbk_clear_halt(struct libusb_device_handle *dev_handle, unsigned char endpoint);
+static int libusbk_abort_transfers(struct usbi_transfer *itransfer);
+static int libusbk_abort_control(struct usbi_transfer *itransfer);
+static int libusbk_reset_device(struct libusb_device_handle *dev_handle);
+static int libusbk_copy_transfer_data(struct usbi_transfer *itransfer, uint32_t io_size);
 // Composite API prototypes
 static int composite_init(struct libusb_context *ctx);
 static int composite_exit(void);
@@ -93,6 +115,32 @@ static int composite_abort_control(struct usbi_transfer *itransfer);
 static int composite_reset_device(struct libusb_device_handle *dev_handle);
 static int composite_copy_transfer_data(struct usbi_transfer *itransfer, uint32_t io_size);
 
+// Workaround for MinGW-w64 multilib bug
+#if defined(_MSC_VER) || defined(_WIN64)
+#define INIT_INTERLOCKEDEXCHANGE
+#define INIT_INTERLOCKEDINCREMENT
+#define pInterlockedExchange InterlockedExchange
+#define pInterlockedIncrement InterlockedIncrement
+#else
+static LONG (WINAPI *pInterlockedExchange)(LONG volatile *, LONG) = NULL;
+#define INIT_INTERLOCKEDEXCHANGE if (pInterlockedExchange == NULL) {		\
+	pInterlockedExchange = (LONG (WINAPI *)(LONG volatile *, LONG))			\
+		GetProcAddress(GetModuleHandle("KERNEL32"), "InterlockedExchange");	\
+	if (pInterlockedExchange == NULL) {										\
+		usbi_err(NULL, "InterlockedExchange is unavailable");				\
+		return 1;															\
+	}																		\
+}
+static LONG (WINAPI *pInterlockedIncrement)(LONG volatile *) = NULL;
+#define INIT_INTERLOCKEDINCREMENT if (pInterlockedIncrement == NULL) {		\
+	pInterlockedIncrement = (LONG (WINAPI *)(LONG volatile *))				\
+		GetProcAddress(GetModuleHandle("KERNEL32"), "InterlockedIncrement");\
+	if (pInterlockedIncrement == NULL) {									\
+		usbi_err(NULL, "IInterlockedIncrement is unavailable");				\
+		return LIBUSB_ERROR_NOT_FOUND;										\
+	}																		\
+}
+#endif
 
 // Global variables
 uint64_t hires_frequency, hires_ticks_to_ps;
@@ -113,7 +161,9 @@ HANDLE timer_request[2] = { NULL, NULL };
 HANDLE timer_response = NULL;
 // API globals
 bool api_winusb_available = false;
-#define CHECK_WINUSB_AVAILABLE do { if (!api_winusb_available) return LIBUSB_ERROR_ACCESS; } while (0)
+bool api_libusbk_available = false;
+#define CHECK_WINUSB_AVAILABLE do { if ( ((!k) && (!api_winusb_available)) || ((k) && (!api_libusbk_available)) ) \
+	return LIBUSB_ERROR_ACCESS; } while (0)
 
 static inline BOOLEAN guid_eq(const GUID *guid1, const GUID *guid2) {
 	if ((guid1 != NULL) && (guid2 != NULL)) {
@@ -590,12 +640,8 @@ static int windows_assign_endpoints(struct libusb_device_handle *dev_handle, int
 	}
 	libusb_free_config_descriptor(conf_desc);
 
-	// Extra init is required for WinUSB endpoints
-	if (priv->apib->id == USB_API_WINUSB) {
-		return winusb_configure_endpoints(dev_handle, iface);
-	}
-
-	return LIBUSB_SUCCESS;
+	// Extra init may be required to configure endpoints
+	return priv->apib->configure_endpoints(dev_handle, iface);
 }
 
 // Lookup for a match in the list of API driver names
@@ -636,6 +682,14 @@ static int auto_claim(struct libusb_transfer *transfer, int *interface_number, i
 	struct windows_device_priv *priv = __device_priv(transfer->dev_handle->dev);
 	int current_interface = *interface_number;
 	int r = LIBUSB_SUCCESS;
+
+	switch(api_type) {
+	case USB_API_WINUSB:
+	case USB_API_LIBUSBK:
+		break;
+	default:
+		return LIBUSB_ERROR_INVALID_PARAM;
+	}
 
 	usbi_mutex_lock(&autoclaim_lock);
 	if (current_interface < 0)	// No serviceable interface was found
@@ -2045,7 +2099,8 @@ unsigned __stdcall windows_clock_gettime_threaded(void* param)
 			}
 			ReleaseMutex(timer_mutex);
 
-			nb_responses = InterlockedExchange((LONG*)&request_count[0], 0);
+			INIT_INTERLOCKEDEXCHANGE;
+			nb_responses = pInterlockedExchange((LONG*)&request_count[0], 0);
 			if ( (nb_responses)
 			  && (ReleaseSemaphore(timer_response, nb_responses, NULL) == 0) ) {
 				usbi_dbg("unable to release timer semaphore %d: %s", windows_error_str(0));
@@ -2068,8 +2123,9 @@ static int windows_clock_gettime(int clk_id, struct timespec *tp)
 	switch(clk_id) {
 	case USBI_CLOCK_MONOTONIC:
 		if (hires_frequency != 0) {
+			INIT_INTERLOCKEDINCREMENT;
 			while (1) {
-				InterlockedIncrement((LONG*)&request_count[0]);
+				pInterlockedIncrement((LONG*)&request_count[0]);
 				SetEvent(timer_request[0]);
 				r = WaitForSingleObject(timer_response, TIMER_REQUEST_RETRY_MS);
 				switch(r) {
@@ -2170,6 +2226,9 @@ static int unsupported_open(struct libusb_device_handle *dev_handle) {
 static void unsupported_close(struct libusb_device_handle *dev_handle) {
 	usbi_dbg("unsupported API call for 'close'");
 }
+static int unsupported_configure_endpoints(struct libusb_device_handle *dev_handle, int iface) {
+	PRINT_UNSUPPORTED_API(configure_endpoints);
+}
 static int unsupported_claim_interface(struct libusb_device_handle *dev_handle, int iface) {
 	PRINT_UNSUPPORTED_API(claim_interface);
 }
@@ -2203,11 +2262,15 @@ static int unsupported_abort_transfers(struct usbi_transfer *itransfer) {
 static int unsupported_copy_transfer_data(struct usbi_transfer *itransfer, uint32_t io_size) {
 	PRINT_UNSUPPORTED_API(copy_transfer_data);
 }
+static int common_configure_endpoints(struct libusb_device_handle *dev_handle, int iface) {
+	return LIBUSB_SUCCESS;
+}
 
 // These names must be uppercase
 const char* hub_driver_names[] = {"USBHUB"};
 const char* composite_driver_names[] = {"USBCCGP"};
 const char* winusb_driver_names[] = {"WINUSB"};
+const char* libusbK_driver_names[] = {"LIBUSBK"};
 const struct windows_usb_api_backend usb_api_backend[USB_API_MAX] = {
 	{
 		USB_API_UNSUPPORTED,
@@ -2219,6 +2282,7 @@ const struct windows_usb_api_backend usb_api_backend[USB_API_MAX] = {
 		unsupported_exit,
 		unsupported_open,
 		unsupported_close,
+		unsupported_configure_endpoints,
 		unsupported_claim_interface,
 		unsupported_set_interface_altsetting,
 		unsupported_release_interface,
@@ -2240,6 +2304,7 @@ const struct windows_usb_api_backend usb_api_backend[USB_API_MAX] = {
 		unsupported_exit,
 		unsupported_open,
 		unsupported_close,
+		unsupported_configure_endpoints,
 		unsupported_claim_interface,
 		unsupported_set_interface_altsetting,
 		unsupported_release_interface,
@@ -2261,6 +2326,7 @@ const struct windows_usb_api_backend usb_api_backend[USB_API_MAX] = {
 		composite_exit,
 		composite_open,
 		composite_close,
+		common_configure_endpoints,
 		composite_claim_interface,
 		composite_set_interface_altsetting,
 		composite_release_interface,
@@ -2282,6 +2348,7 @@ const struct windows_usb_api_backend usb_api_backend[USB_API_MAX] = {
 		winusb_exit,
 		winusb_open,
 		winusb_close,
+		winusb_configure_endpoints,
 		winusb_claim_interface,
 		winusb_set_interface_altsetting,
 		winusb_release_interface,
@@ -2293,13 +2360,39 @@ const struct windows_usb_api_backend usb_api_backend[USB_API_MAX] = {
 		winusb_abort_control,
 		winusb_abort_transfers,
 		winusb_copy_transfer_data,
+	}, {
+		USB_API_LIBUSBK,
+		"libusbK API",
+		&CLASS_GUID_LIBUSBK,
+		libusbK_driver_names,
+		sizeof(libusbK_driver_names)/sizeof(libusbK_driver_names[0]),
+		libusbk_init,
+		libusbk_exit,
+		libusbk_open,
+		libusbk_close,
+		libusbk_configure_endpoints,
+		libusbk_claim_interface,
+		libusbk_set_interface_altsetting,
+		libusbk_release_interface,
+		libusbk_clear_halt,
+		libusbk_reset_device,
+		libusbk_submit_bulk_transfer,
+		unsupported_submit_iso_transfer,
+		libusbk_submit_control_transfer,
+		libusbk_abort_control,
+		libusbk_abort_transfers,
+		libusbk_copy_transfer_data,
 	},
 };
 
 
 /*
- * WinUSB API functions
+ * WinUSB, libusbK API functions
  */
+
+// TODO: This will break on MSVC6 because of the use of VA_ARGS...
+#define _WinUsb(name, ...) (((k) && (LUsbK_##name(__VA_ARGS__))) || ((!k) && (WinUsb_##name(__VA_ARGS__))))
+
 static int winusb_init(struct libusb_context *ctx)
 {
 	DLL_LOAD(winusb.dll, WinUsb_Initialize, TRUE);
@@ -2329,10 +2422,40 @@ static int winusb_exit(void)
 	return LIBUSB_SUCCESS;
 }
 
+static int libusbk_init(struct libusb_context *ctx)
+{
+	DLL_LOAD(libusbK.dll, LUsbK_Initialize, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_Free, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_GetAssociatedInterface, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_GetDescriptor, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_QueryInterfaceSettings, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_QueryDeviceInformation, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_SetCurrentAlternateSetting, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_GetCurrentAlternateSetting, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_QueryPipe, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_SetPipePolicy, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_GetPipePolicy, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_ReadPipe, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_WritePipe, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_ControlTransfer, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_ResetPipe, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_AbortPipe, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_FlushPipe, TRUE);
+	DLL_LOAD(libusbK.dll, LUsbK_ResetDevice, TRUE);
+
+	api_libusbk_available = true;
+	return LIBUSB_SUCCESS;
+}
+
+static int libusbk_exit(void)
+{
+	return LIBUSB_SUCCESS;
+}
+
 // NB: open and close must ensure that they only handle interface of
 // the right API type, as these functions can be called wholesale from
 // composite_open(), with interfaces belonging to different APIs
-static int winusb_open(struct libusb_device_handle *dev_handle)
+static int _winusb_open(struct libusb_device_handle *dev_handle, bool k)
 {
 	struct libusb_context *ctx = DEVICE_CTX(dev_handle->dev);
 	struct windows_device_priv *priv = __device_priv(dev_handle->dev);
@@ -2346,7 +2469,7 @@ static int winusb_open(struct libusb_device_handle *dev_handle)
 	// WinUSB requires a seperate handle for each interface
 	for (i = 0; i < USB_MAXINTERFACES; i++) {
 		if ( (priv->usb_interface[i].path != NULL)
-		  && (priv->usb_interface[i].apib->id == USB_API_WINUSB) ) {
+		  && ((priv->usb_interface[i].apib->id == USB_API_WINUSB)||(priv->usb_interface[i].apib->id == USB_API_LIBUSBK)) ) {
 			file_handle = CreateFileA(priv->usb_interface[i].path, GENERIC_WRITE | GENERIC_READ, FILE_SHARE_WRITE | FILE_SHARE_READ,
 				NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
 			if (file_handle == INVALID_HANDLE_VALUE) {
@@ -2367,18 +2490,31 @@ static int winusb_open(struct libusb_device_handle *dev_handle)
 	return LIBUSB_SUCCESS;
 }
 
-static void winusb_close(struct libusb_device_handle *dev_handle)
+static int winusb_open(struct libusb_device_handle *dev_handle)
+{
+	return _winusb_open(dev_handle, false);
+}
+
+static int libusbk_open(struct libusb_device_handle *dev_handle)
+{
+	return _winusb_open(dev_handle, true);
+}
+
+static void _winusb_close(struct libusb_device_handle *dev_handle, bool k)
 {
 	struct windows_device_handle_priv *handle_priv = __device_handle_priv(dev_handle);
 	struct windows_device_priv *priv = __device_priv(dev_handle->dev);
 	HANDLE file_handle;
 	int i;
 
-	if (!api_winusb_available)
+	if ((!k) && (!api_winusb_available))
+		return;
+
+	if ((k) && (!api_libusbk_available))
 		return;
 
 	for (i = 0; i < USB_MAXINTERFACES; i++) {
-		if (priv->usb_interface[i].apib->id == USB_API_WINUSB) {
+		if ((priv->usb_interface[i].apib->id == USB_API_WINUSB)||(priv->usb_interface[i].apib->id == USB_API_LIBUSBK)) {
 			file_handle = handle_priv->interface_handle[i].dev_handle;
 			if ( (file_handle != 0) && (file_handle != INVALID_HANDLE_VALUE)) {
 				CloseHandle(file_handle);
@@ -2387,7 +2523,17 @@ static void winusb_close(struct libusb_device_handle *dev_handle)
 	}
 }
 
-static int winusb_configure_endpoints(struct libusb_device_handle *dev_handle, int iface)
+static void winusb_close(struct libusb_device_handle *dev_handle)
+{
+	_winusb_close(dev_handle, false);
+}
+
+static void libusbk_close(struct libusb_device_handle *dev_handle)
+{
+	_winusb_close(dev_handle, true);
+}
+
+static int _winusb_configure_endpoints(struct libusb_device_handle *dev_handle, int iface, bool k)
 {
 	struct windows_device_handle_priv *handle_priv = __device_handle_priv(dev_handle);
 	struct windows_device_priv *priv = __device_priv(dev_handle->dev);
@@ -2403,26 +2549,26 @@ static int winusb_configure_endpoints(struct libusb_device_handle *dev_handle, i
 	// see http://download.microsoft.com/download/D/1/D/D1DD7745-426B-4CC3-A269-ABBBE427C0EF/DVC-T705_DDC08.pptx
 	for (i=-1; i<priv->usb_interface[iface].nb_endpoints; i++) {
 		endpoint_address =(i==-1)?0:priv->usb_interface[iface].endpoint[i];
-		if (!WinUsb_SetPipePolicy(winusb_handle, endpoint_address,
+		if (!_WinUsb(SetPipePolicy, winusb_handle, endpoint_address,
 			PIPE_TRANSFER_TIMEOUT, sizeof(ULONG), &timeout)) {
 			usbi_dbg("failed to set PIPE_TRANSFER_TIMEOUT for control endpoint %02X", endpoint_address);
 		}
 		if (i == -1) continue;	// Other policies don't apply to control endpoint
 		policy = false;
-		if (!WinUsb_SetPipePolicy(winusb_handle, endpoint_address,
+		if (!_WinUsb(SetPipePolicy, winusb_handle, endpoint_address,
 			SHORT_PACKET_TERMINATE, sizeof(UCHAR), &policy)) {
 			usbi_dbg("failed to disable SHORT_PACKET_TERMINATE for endpoint %02X", endpoint_address);
 		}
-		if (!WinUsb_SetPipePolicy(winusb_handle, endpoint_address,
+		if (!_WinUsb(SetPipePolicy, winusb_handle, endpoint_address,
 			IGNORE_SHORT_PACKETS, sizeof(UCHAR), &policy)) {
 			usbi_dbg("failed to disable IGNORE_SHORT_PACKETS for endpoint %02X", endpoint_address);
 		}
-		if (!WinUsb_SetPipePolicy(winusb_handle, endpoint_address,
+		if (!_WinUsb(SetPipePolicy, winusb_handle, endpoint_address,
 			ALLOW_PARTIAL_READS, sizeof(UCHAR), &policy)) {
 			usbi_dbg("failed to disable ALLOW_PARTIAL_READS for endpoint %02X", endpoint_address);
 		}
 		policy = true;
-		if (!WinUsb_SetPipePolicy(winusb_handle, endpoint_address,
+		if (!_WinUsb(SetPipePolicy, winusb_handle, endpoint_address,
 			AUTO_CLEAR_STALL, sizeof(UCHAR), &policy)) {
 			usbi_dbg("failed to enable AUTO_CLEAR_STALL for endpoint %02X", endpoint_address);
 		}
@@ -2431,7 +2577,17 @@ static int winusb_configure_endpoints(struct libusb_device_handle *dev_handle, i
 	return LIBUSB_SUCCESS;
 }
 
-static int winusb_claim_interface(struct libusb_device_handle *dev_handle, int iface)
+static int winusb_configure_endpoints(struct libusb_device_handle *dev_handle, int iface)
+{
+	return _winusb_configure_endpoints(dev_handle, iface, false);
+}
+
+static int libusbk_configure_endpoints(struct libusb_device_handle *dev_handle, int iface)
+{
+	return _winusb_configure_endpoints(dev_handle, iface, true);
+}
+
+static int _winusb_claim_interface(struct libusb_device_handle *dev_handle, int iface, bool k)
 {
 	struct libusb_context *ctx = DEVICE_CTX(dev_handle->dev);
 	struct windows_device_handle_priv *handle_priv = __device_handle_priv(dev_handle);
@@ -2451,7 +2607,7 @@ static int winusb_claim_interface(struct libusb_device_handle *dev_handle, int i
 			return LIBUSB_ERROR_NOT_FOUND;
 		}
 
-		if (!WinUsb_Initialize(file_handle, &winusb_handle)) {
+		if (!_WinUsb(Initialize, file_handle, &winusb_handle)) {
 			usbi_err(ctx, "could not access interface %d: %s", iface, windows_error_str(0));
 			handle_priv->interface_handle[iface].api_handle = INVALID_HANDLE_VALUE;
 
@@ -2467,12 +2623,12 @@ static int winusb_claim_interface(struct libusb_device_handle *dev_handle, int i
 	} else {
 		// For all other interfaces, use WinUsb_GetAssociatedInterface()
 		winusb_handle = handle_priv->interface_handle[0].api_handle;
-		// It is a requirement for multiple interface devices using WinUSB that you
-		// must first claim the first interface before you claim any other
+		// It is a requirement for multiple interface devices on Windows that, to you
+		// must first claim the first interface before you claim the others
 		if ((winusb_handle == 0) || (winusb_handle == INVALID_HANDLE_VALUE)) {
 #if defined(AUTO_CLAIM)
 			file_handle = handle_priv->interface_handle[0].dev_handle;
-			if (WinUsb_Initialize(file_handle, &winusb_handle)) {
+			if (_WinUsb(Initialize, file_handle, &winusb_handle)) {
 				handle_priv->interface_handle[0].api_handle = winusb_handle;
 				usbi_warn(ctx, "auto-claimed interface 0 (required to claim %d with WinUSB)", iface);
 			} else {
@@ -2484,7 +2640,7 @@ static int winusb_claim_interface(struct libusb_device_handle *dev_handle, int i
 			return LIBUSB_ERROR_ACCESS;
 #endif
 		}
-		if (!WinUsb_GetAssociatedInterface(winusb_handle, (UCHAR)(iface-1),
+		if (!_WinUsb(GetAssociatedInterface, winusb_handle, (UCHAR)(iface-1),
 			&handle_priv->interface_handle[iface].api_handle)) {
 			handle_priv->interface_handle[iface].api_handle = INVALID_HANDLE_VALUE;
 			switch(GetLastError()) {
@@ -2506,10 +2662,21 @@ static int winusb_claim_interface(struct libusb_device_handle *dev_handle, int i
 	return LIBUSB_SUCCESS;
 }
 
-static int winusb_release_interface(struct libusb_device_handle *dev_handle, int iface)
+static int winusb_claim_interface(struct libusb_device_handle *dev_handle, int iface)
+{
+	return _winusb_claim_interface(dev_handle, iface, false);
+}
+
+static int libusbk_claim_interface(struct libusb_device_handle *dev_handle, int iface)
+{
+	return _winusb_claim_interface(dev_handle, iface, true);
+}
+
+static int _winusb_release_interface(struct libusb_device_handle *dev_handle, int iface, bool k)
 {
 	struct windows_device_handle_priv *handle_priv = __device_handle_priv(dev_handle);
 	HANDLE winusb_handle;
+	BOOL ignored;
 
 	CHECK_WINUSB_AVAILABLE;
 
@@ -2518,10 +2685,22 @@ static int winusb_release_interface(struct libusb_device_handle *dev_handle, int
 		return LIBUSB_ERROR_NOT_FOUND;
 	}
 
-	WinUsb_Free(winusb_handle);
+	// http://msdn.microsoft.com/en-us/library/ff540233%28v=vs.85%29.aspx:
+	// "WinUsb_Free returns TRUE"
+	ignored = _WinUsb(Free, winusb_handle);
 	handle_priv->interface_handle[iface].api_handle = INVALID_HANDLE_VALUE;
 
 	return LIBUSB_SUCCESS;
+}
+
+static int winusb_release_interface(struct libusb_device_handle *dev_handle, int iface)
+{
+	return _winusb_release_interface(dev_handle, iface, false);
+}
+
+static int libusbk_release_interface(struct libusb_device_handle *dev_handle, int iface)
+{
+	return _winusb_release_interface(dev_handle, iface, true);
 }
 
 /*
@@ -2566,7 +2745,7 @@ static int interface_by_endpoint(struct windows_device_priv *priv,
 	return -1;
 }
 
-static int winusb_submit_control_transfer(struct usbi_transfer *itransfer)
+static int _winusb_submit_control_transfer(struct usbi_transfer *itransfer, bool k)
 {
 	struct libusb_transfer *transfer = __USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 	struct libusb_context *ctx = DEVICE_CTX(transfer->dev_handle->dev);
@@ -2591,7 +2770,7 @@ static int winusb_submit_control_transfer(struct usbi_transfer *itransfer)
 	current_interface = winusb_get_valid_interface(transfer->dev_handle);
 	if (current_interface < 0) {
 #if defined(AUTO_CLAIM)
-		if (auto_claim(transfer, &current_interface, USB_API_WINUSB) != LIBUSB_SUCCESS) {
+		if (auto_claim(transfer, &current_interface, k?USB_API_LIBUSBK:USB_API_WINUSB) != LIBUSB_SUCCESS) {
 			return LIBUSB_ERROR_NOT_FOUND;
 		}
 #else
@@ -2620,7 +2799,7 @@ static int winusb_submit_control_transfer(struct usbi_transfer *itransfer)
 		wfd.overlapped->Internal = STATUS_COMPLETED_SYNCHRONOUSLY;
 		wfd.overlapped->InternalHigh = 0;
 	} else {
-		if (!WinUsb_ControlTransfer(wfd.handle, *setup, transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE, size, NULL, wfd.overlapped)) {
+		if (!_WinUsb(ControlTransfer, wfd.handle, *setup, transfer->buffer + LIBUSB_CONTROL_SETUP_SIZE, size, NULL, wfd.overlapped)) {
 			if(GetLastError() != ERROR_IO_PENDING) {
 				usbi_err(ctx, "WinUsb_ControlTransfer failed: %s", windows_error_str(0));
 				usbi_free_fd(wfd.fd);
@@ -2639,7 +2818,17 @@ static int winusb_submit_control_transfer(struct usbi_transfer *itransfer)
 	return LIBUSB_SUCCESS;
 }
 
-static int winusb_set_interface_altsetting(struct libusb_device_handle *dev_handle, int iface, int altsetting)
+static int winusb_submit_control_transfer(struct usbi_transfer *itransfer)
+{
+	return _winusb_submit_control_transfer(itransfer, false);
+}
+
+static int libusbk_submit_control_transfer(struct usbi_transfer *itransfer)
+{
+	return _winusb_submit_control_transfer(itransfer, true);
+}
+
+static int _winusb_set_interface_altsetting(struct libusb_device_handle *dev_handle, int iface, int altsetting, bool k)
 {
 	struct libusb_context *ctx = DEVICE_CTX(dev_handle->dev);
 	struct windows_device_handle_priv *handle_priv = __device_handle_priv(dev_handle);
@@ -2657,7 +2846,7 @@ static int winusb_set_interface_altsetting(struct libusb_device_handle *dev_hand
 		return LIBUSB_ERROR_NOT_FOUND;
 	}
 
-	if (!WinUsb_SetCurrentAlternateSetting(winusb_handle, (UCHAR)altsetting)) {
+	if (!_WinUsb(SetCurrentAlternateSetting, winusb_handle, (UCHAR)altsetting)) {
 		usbi_err(ctx, "WinUsb_SetCurrentAlternateSetting failed: %s", windows_error_str(0));
 		return LIBUSB_ERROR_IO;
 	}
@@ -2665,7 +2854,17 @@ static int winusb_set_interface_altsetting(struct libusb_device_handle *dev_hand
 	return LIBUSB_SUCCESS;
 }
 
-static int winusb_submit_bulk_transfer(struct usbi_transfer *itransfer)
+static int winusb_set_interface_altsetting(struct libusb_device_handle *dev_handle, int iface, int altsetting)
+{
+	return _winusb_set_interface_altsetting(dev_handle, iface, altsetting, false);
+}
+
+static int libusbk_set_interface_altsetting(struct libusb_device_handle *dev_handle, int iface, int altsetting)
+{
+	return _winusb_set_interface_altsetting(dev_handle, iface, altsetting, true);
+}
+
+static int _winusb_submit_bulk_transfer(struct usbi_transfer *itransfer, bool k)
 {
 	struct libusb_transfer *transfer = __USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 	struct libusb_context *ctx = DEVICE_CTX(transfer->dev_handle->dev);
@@ -2700,10 +2899,16 @@ static int winusb_submit_bulk_transfer(struct usbi_transfer *itransfer)
 
 	if (direction_in) {
 		usbi_dbg("reading %d bytes", transfer->length);
-		ret = WinUsb_ReadPipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
+		if (!k)
+			ret = WinUsb_ReadPipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
+		else
+			ret = LUsbK_ReadPipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
 	} else {
 		usbi_dbg("writing %d bytes", transfer->length);
-		ret = WinUsb_WritePipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
+		if (!k)
+			ret = WinUsb_WritePipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
+		else
+			ret = LUsbK_WritePipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
 	}
 	if (!ret) {
 		if(GetLastError() != ERROR_IO_PENDING) {
@@ -2722,7 +2927,17 @@ static int winusb_submit_bulk_transfer(struct usbi_transfer *itransfer)
 	return LIBUSB_SUCCESS;
 }
 
-static int winusb_clear_halt(struct libusb_device_handle *dev_handle, unsigned char endpoint)
+static int winusb_submit_bulk_transfer(struct usbi_transfer *itransfer)
+{
+	return _winusb_submit_bulk_transfer(itransfer, false);
+}
+
+static int libusbk_submit_bulk_transfer(struct usbi_transfer *itransfer)
+{
+	return _winusb_submit_bulk_transfer(itransfer, true);
+}
+
+static int _winusb_clear_halt(struct libusb_device_handle *dev_handle, unsigned char endpoint, bool k)
 {
 	struct libusb_context *ctx = DEVICE_CTX(dev_handle->dev);
 	struct windows_device_handle_priv *handle_priv = __device_handle_priv(dev_handle);
@@ -2741,12 +2956,22 @@ static int winusb_clear_halt(struct libusb_device_handle *dev_handle, unsigned c
 	usbi_dbg("matched endpoint %02X with interface %d", endpoint, current_interface);
 	winusb_handle = handle_priv->interface_handle[current_interface].api_handle;
 
-	if (!WinUsb_ResetPipe(winusb_handle, endpoint)) {
+	if (!_WinUsb(ResetPipe, winusb_handle, endpoint)) {
 		usbi_err(ctx, "WinUsb_ResetPipe failed: %s", windows_error_str(0));
 		return LIBUSB_ERROR_NO_DEVICE;
 	}
 
 	return LIBUSB_SUCCESS;
+}
+
+static int winusb_clear_halt(struct libusb_device_handle *dev_handle, unsigned char endpoint)
+{
+	return _winusb_clear_halt(dev_handle, endpoint, false);
+}
+
+static int libusbk_clear_halt(struct libusb_device_handle *dev_handle, unsigned char endpoint)
+{
+	return _winusb_clear_halt(dev_handle, endpoint, true);
 }
 
 /*
@@ -2761,7 +2986,13 @@ static int winusb_abort_control(struct usbi_transfer *itransfer)
 	return LIBUSB_SUCCESS;
 }
 
-static int winusb_abort_transfers(struct usbi_transfer *itransfer)
+static int libusbk_abort_control(struct usbi_transfer *itransfer)
+{
+	// Cancelling of the I/O is done in the parent
+	return LIBUSB_SUCCESS;
+}
+
+static int _winusb_abort_transfers(struct usbi_transfer *itransfer, bool k)
 {
 	struct libusb_transfer *transfer = __USBI_TRANSFER_TO_LIBUSB_TRANSFER(itransfer);
 	struct libusb_context *ctx = DEVICE_CTX(transfer->dev_handle->dev);
@@ -2781,12 +3012,22 @@ static int winusb_abort_transfers(struct usbi_transfer *itransfer)
 
 	winusb_handle = handle_priv->interface_handle[current_interface].api_handle;
 
-	if (!WinUsb_AbortPipe(winusb_handle, transfer->endpoint)) {
+	if (!_WinUsb(AbortPipe, winusb_handle, transfer->endpoint)) {
 		usbi_err(ctx, "WinUsb_AbortPipe failed: %s", windows_error_str(0));
 		return LIBUSB_ERROR_NO_DEVICE;
 	}
 
 	return LIBUSB_SUCCESS;
+}
+
+static int winusb_abort_transfers(struct usbi_transfer *itransfer)
+{
+	return _winusb_abort_transfers(itransfer, false);
+}
+
+static int libusbk_abort_transfers(struct usbi_transfer *itransfer)
+{
+	return _winusb_abort_transfers(itransfer, true);
 }
 
 /*
@@ -2798,7 +3039,7 @@ static int winusb_abort_transfers(struct usbi_transfer *itransfer)
  * cycle the pipes (and even then, the control pipe can not be reset using WinUSB)
  */
 // TODO (post hotplug): see if we can force eject the device and redetect it (reuse hotplug?)
-static int winusb_reset_device(struct libusb_device_handle *dev_handle)
+static int _winusb_reset_device(struct libusb_device_handle *dev_handle, bool k)
 {
 	struct libusb_context *ctx = DEVICE_CTX(dev_handle->dev);
 	struct windows_device_handle_priv *handle_priv = __device_handle_priv(dev_handle);
@@ -2823,17 +3064,17 @@ static int winusb_reset_device(struct libusb_device_handle *dev_handle)
 		if ( (winusb_handle != 0) && (winusb_handle != INVALID_HANDLE_VALUE)) {
 			for (j=0; j<priv->usb_interface[i].nb_endpoints; j++) {
 				usbi_dbg("resetting ep %02X", priv->usb_interface[i].endpoint[j]);
-				if (!WinUsb_AbortPipe(winusb_handle, priv->usb_interface[i].endpoint[j])) {
+				if (!_WinUsb(AbortPipe, winusb_handle, priv->usb_interface[i].endpoint[j])) {
 					usbi_err(ctx, "WinUsb_AbortPipe (pipe address %02X) failed: %s",
 						priv->usb_interface[i].endpoint[j], windows_error_str(0));
 				}
 				// FlushPipe seems to fail on OUT pipes
 				if ( (priv->usb_interface[i].endpoint[j] & LIBUSB_ENDPOINT_IN)
-				  && (!WinUsb_FlushPipe(winusb_handle, priv->usb_interface[i].endpoint[j])) ) {
+				  && (!_WinUsb(FlushPipe, winusb_handle, priv->usb_interface[i].endpoint[j])) ) {
 					usbi_err(ctx, "WinUsb_FlushPipe (pipe address %02X) failed: %s",
 						priv->usb_interface[i].endpoint[j], windows_error_str(0));
 				}
-				if (!WinUsb_ResetPipe(winusb_handle, priv->usb_interface[i].endpoint[j])) {
+				if (!_WinUsb(ResetPipe, winusb_handle, priv->usb_interface[i].endpoint[j])) {
 					usbi_err(ctx, "WinUsb_ResetPipe (pipe address %02X) failed: %s",
 						priv->usb_interface[i].endpoint[j], windows_error_str(0));
 				}
@@ -2841,7 +3082,25 @@ static int winusb_reset_device(struct libusb_device_handle *dev_handle)
 		}
 	}
 
+	// LibusbK has the ability to issue an actual device reset
+	if (k) {
+		winusb_handle = handle_priv->interface_handle[0].api_handle;
+		if ( (winusb_handle != 0) && (winusb_handle != INVALID_HANDLE_VALUE)) {
+			LUsbK_ResetDevice(winusb_handle);
+		}
+	}
+
 	return LIBUSB_SUCCESS;
+}
+
+static int winusb_reset_device(struct libusb_device_handle *dev_handle)
+{
+	return _winusb_reset_device(dev_handle, false);
+}
+
+static int libusbk_reset_device(struct libusb_device_handle *dev_handle)
+{
+	return _winusb_reset_device(dev_handle, true);
 }
 
 static int winusb_copy_transfer_data(struct usbi_transfer *itransfer, uint32_t io_size)
@@ -2850,6 +3109,11 @@ static int winusb_copy_transfer_data(struct usbi_transfer *itransfer, uint32_t i
 	return LIBUSB_TRANSFER_COMPLETED;
 }
 
+static int libusbk_copy_transfer_data(struct usbi_transfer *itransfer, uint32_t io_size)
+{
+	itransfer->transferred += io_size;
+	return LIBUSB_TRANSFER_COMPLETED;
+}
 
 /*
  * Composite API functions
