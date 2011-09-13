@@ -2161,6 +2161,28 @@ static int windows_clock_gettime(int clk_id, struct timespec *tp)
 	}
 }
 
+static int windows_get_portpath(struct libusb_device *dev, char *path, size_t *pathlen)
+{
+	struct windows_device_priv *priv = __device_priv(dev);
+	size_t priv_pathlen;
+	int r = LIBUSB_SUCCESS;
+
+	if (!priv->path)
+		return LIBUSB_ERROR_NO_DEVICE;
+
+	priv_pathlen = strlen(priv->path);
+
+	strncpy(path, priv->path, *pathlen - 1);
+
+	if (priv_pathlen > *pathlen) {
+		path[*pathlen - 1] = 0;
+		r = LIBUSB_ERROR_OVERFLOW;
+	}
+
+	*pathlen = priv_pathlen;
+
+	return r;
+}
 
 // NB: MSVC6 does not support named initializers.
 const struct usbi_os_backend windows_backend = {
@@ -2199,7 +2221,7 @@ const struct usbi_os_backend windows_backend = {
 
 	windows_clock_gettime,
 
-	NULL, // get_portpath
+	windows_get_portpath, // get_portpath
 
 #if defined(USBI_TIMERFD_AVAILABLE)
 	NULL,
