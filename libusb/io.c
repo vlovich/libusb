@@ -37,6 +37,25 @@
 #include "libusbi.h"
 
 /**
+ * Used for thunking HANDLE to int pointer for compatability
+ */
+#ifdef NO_LEGACY_POLLFD_TYPE
+  #ifdef PtrToInt
+    #define HANDLE_TO_POLLFD_TYPE(handle) (ssize_t)(LONG_PTR)handle
+  #else
+    #define HANDLE_TO_POLLFD_TYPE(handle) handle
+  #endif
+  #define INT_TO_POLLFD_TYPE(fd) (ssize_t)fd
+#else
+ #ifdef PtrToInt
+  #define HANDLE_TO_POLLFD_TYPE(handle) PtrToInt(handle)
+ #else
+  #define HANDLE_TO_POLLFD_TYPE(handle) (int)handle
+ #endif
+ #define INT_TO_POLLFD_TYPE(handle) (handle)
+#endif
+
+/**
  * \page io Synchronous and asynchronous device I/O
  *
  * \section intro Introduction
@@ -2203,7 +2222,13 @@ void API_EXPORTED libusb_set_pollfd_notifiers(libusb_context *ctx,
  * POLLIN and/or POLLOUT. */
 int usbi_add_pollfd(struct libusb_context *ctx, int fd, short events)
 {
+	return usbi_add_pollfd_ex(ctx, fd, events, NULL);
+}
+
+int usbi_add_pollfd_ex(struct libusb_context *ctx, int fd, short events, void *handle)
+{
 	struct usbi_pollfd *ipollfd = malloc(sizeof(*ipollfd));
+	LIBUSB_POLLFD_TYPE notify_fd;
 	if (!ipollfd)
 		return LIBUSB_ERROR_NO_MEM;
 
@@ -2214,16 +2239,25 @@ int usbi_add_pollfd(struct libusb_context *ctx, int fd, short events)
 	list_add_tail(&ipollfd->list, &ctx->pollfds);
 	usbi_mutex_unlock(&ctx->pollfds_lock);
 
+	if (handle) notify_fd = HANDLE_TO_POLLFD_TYPE(handle);
+	else notify_fd = INT_TO_POLLFD_TYPE(fd);
+
 	if (ctx->fd_added_cb)
-		ctx->fd_added_cb(fd, events, ctx->fd_cb_user_data);
+		ctx->fd_added_cb(notify_fd, events, ctx->fd_cb_user_data);
 	return 0;
 }
 
 /* Remove a file descriptor from the list of file descriptors to be polled. */
 void usbi_remove_pollfd(struct libusb_context *ctx, int fd)
 {
+	usbi_remove_pollfd_ex(ctx, fd, NULL);
+}
+
+void usbi_remove_pollfd_ex(struct libusb_context *ctx, int fd, void *handle)
+{
 	struct usbi_pollfd *ipollfd;
 	int found = 0;
+	LIBUSB_POLLFD_TYPE notify_fd;
 
 	usbi_dbg("remove fd %d", fd);
 	usbi_mutex_lock(&ctx->pollfds_lock);
@@ -2242,8 +2276,12 @@ void usbi_remove_pollfd(struct libusb_context *ctx, int fd)
 	list_del(&ipollfd->list);
 	usbi_mutex_unlock(&ctx->pollfds_lock);
 	free(ipollfd);
+	
+	if (handle) notify_fd = HANDLE_TO_POLLFD_TYPE(handle);
+	else notify_fd = INT_TO_POLLFD_TYPE(fd);
+
 	if (ctx->fd_removed_cb)
-		ctx->fd_removed_cb(fd, ctx->fd_cb_user_data);
+		ctx->fd_removed_cb(notify_fd, ctx->fd_cb_user_data);
 }
 
 /** \ingroup poll
