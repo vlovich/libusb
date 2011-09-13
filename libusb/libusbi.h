@@ -396,7 +396,9 @@ struct usbi_pollfd {
 };
 
 int usbi_add_pollfd(struct libusb_context *ctx, int fd, short events);
+int usbi_add_pollfd_ex(struct libusb_context *ctx, int fd, short events, void *handle);
 void usbi_remove_pollfd(struct libusb_context *ctx, int fd);
+void usbi_remove_pollfd_ex(struct libusb_context *ctx, int fd, void *handle);
 void usbi_fd_notification(struct libusb_context *ctx);
 
 /* device discovery */

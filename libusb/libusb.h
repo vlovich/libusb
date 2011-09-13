@@ -1336,17 +1336,25 @@ struct libusb_pollfd {
 	short events;
 };
 
+// TODO: Change the poll type to ssize_t for good once we can break the API/ABI
+#ifdef NO_LEGACY_POLLFD_TYPE
+#define LIBUSB_POLLFD_TYPE ssize_t
+#else
+#define LIBUSB_POLLFD_TYPE int
+#endif
+
 /** \ingroup poll
  * Callback function, invoked when a new file descriptor should be added
  * to the set of file descriptors monitored for events.
- * \param fd the new file descriptor
+ * \param fd the new file descriptor (or the event handle on Windows)
  * \param events events to monitor for, see \ref libusb_pollfd for a
  * description
  * \param user_data User data pointer specified in
  * libusb_set_pollfd_notifiers() call
  * \see libusb_set_pollfd_notifiers()
+ * \see libusb_pollfd_added_cb_ex()
  */
-typedef void (LIBUSB_CALL *libusb_pollfd_added_cb)(int fd, short events,
+typedef void (LIBUSB_CALL *libusb_pollfd_added_cb)(LIBUSB_POLLFD_TYPE fd, short events,
 	void *user_data);
 
 /** \ingroup poll
@@ -1358,7 +1366,7 @@ typedef void (LIBUSB_CALL *libusb_pollfd_added_cb)(int fd, short events,
  * libusb_set_pollfd_notifiers() call
  * \see libusb_set_pollfd_notifiers()
  */
-typedef void (LIBUSB_CALL *libusb_pollfd_removed_cb)(int fd, void *user_data);
+typedef void (LIBUSB_CALL *libusb_pollfd_removed_cb)(LIBUSB_POLLFD_TYPE fd, void *user_data);
 
 const struct libusb_pollfd ** LIBUSB_CALL libusb_get_pollfds(
 	libusb_context *ctx);
