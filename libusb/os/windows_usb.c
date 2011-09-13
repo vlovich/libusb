@@ -2402,7 +2402,7 @@ const struct windows_usb_api_backend usb_api_backend[USB_API_MAX] = {
  */
 
 // TODO: This will break on MSVC6 because of the use of VA_ARGS...
-#define _WinUsb(name, ...) (((k) && (LUsbK_##name(__VA_ARGS__))) || ((!k) && (WinUsb_##name(__VA_ARGS__))))
+#define _WinUsb(name, ...) (((k) && (UsbK_##name(__VA_ARGS__))) || ((!k) && (WinUsb_##name(__VA_ARGS__))))
 
 static int winusb_init(struct libusb_context *ctx)
 {
@@ -2435,24 +2435,24 @@ static int winusb_exit(void)
 
 static int libusbk_init(struct libusb_context *ctx)
 {
-	DLL_LOAD(libusbK.dll, LUsbK_Initialize, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_Free, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_GetAssociatedInterface, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_GetDescriptor, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_QueryInterfaceSettings, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_QueryDeviceInformation, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_SetCurrentAlternateSetting, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_GetCurrentAlternateSetting, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_QueryPipe, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_SetPipePolicy, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_GetPipePolicy, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_ReadPipe, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_WritePipe, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_ControlTransfer, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_ResetPipe, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_AbortPipe, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_FlushPipe, TRUE);
-	DLL_LOAD(libusbK.dll, LUsbK_ResetDevice, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_Initialize, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_Free, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_GetAssociatedInterface, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_GetDescriptor, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_QueryInterfaceSettings, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_QueryDeviceInformation, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_SetCurrentAlternateSetting, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_GetCurrentAlternateSetting, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_QueryPipe, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_SetPipePolicy, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_GetPipePolicy, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_ReadPipe, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_WritePipe, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_ControlTransfer, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_ResetPipe, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_AbortPipe, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_FlushPipe, TRUE);
+	DLL_LOAD(libusbK.dll, UsbK_ResetDevice, TRUE);
 
 	api_libusbk_available = true;
 	return LIBUSB_SUCCESS;
@@ -2912,13 +2912,13 @@ static int _winusb_submit_bulk_transfer(struct usbi_transfer *itransfer, bool k)
 		if (!k)
 			ret = WinUsb_ReadPipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
 		else
-			ret = LUsbK_ReadPipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
+			ret = UsbK_ReadPipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
 	} else {
 		usbi_dbg("writing %d bytes", transfer->length);
 		if (!k)
 			ret = WinUsb_WritePipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
 		else
-			ret = LUsbK_WritePipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
+			ret = UsbK_WritePipe(wfd.handle, transfer->endpoint, transfer->buffer, transfer->length, NULL, wfd.overlapped);
 	}
 	if (!ret) {
 		if(GetLastError() != ERROR_IO_PENDING) {
@@ -3096,7 +3096,7 @@ static int _winusb_reset_device(struct libusb_device_handle *dev_handle, bool k)
 	if (k) {
 		winusb_handle = handle_priv->interface_handle[0].api_handle;
 		if ( (winusb_handle != 0) && (winusb_handle != INVALID_HANDLE_VALUE)) {
-			LUsbK_ResetDevice(winusb_handle);
+			UsbK_ResetDevice(winusb_handle);
 		}
 	}
 
