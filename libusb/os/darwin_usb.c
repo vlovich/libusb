@@ -1690,10 +1690,10 @@ static int darwin_get_portpath(struct libusb_device *dev, char *path, size_t *pa
 
   syspathlen = strlen(priv->sys_path);
 
-  strncpy(path, priv->sys_path, *pathlen);
-  path[*pathlen] = 0;
+  strncpy(path, priv->sys_path, *pathlen - 1);
 
   if (syspathlen > *pathlen) {
+    path[*pathlen - 1] = 0;
     r = LIBUSB_ERROR_OVERFLOW;
   }
 

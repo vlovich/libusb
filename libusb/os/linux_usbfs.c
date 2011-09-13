@@ -2226,10 +2226,10 @@ static int op_sysfspath(struct libusb_device *dev, char *path, size_t *pathlen)
 
 	sysfslen = strlen(priv->sysfs_dir);
 
-	strncpy(path, priv->sysfs_dir, *pathlen);
-	path[*pathlen] = 0;
+	strncpy(path, priv->sysfs_dir, *pathlen - 1);
 
 	if (sysfslen > *pathlen) {
+		path[*pathlen - 1] = 0;
 		r = LIBUSB_ERROR_OVERFLOW;
 	}
 
