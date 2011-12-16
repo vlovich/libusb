@@ -204,33 +204,6 @@ static usb_device_t **usb_get_next_device (io_iterator_t deviceIterator, UInt32 
   return device;
 }
 
-static kern_return_t darwin_get_device (uint32_t dev_location, usb_device_t ***darwin_device) {
-  kern_return_t kresult;
-  UInt32        location;
-  io_iterator_t deviceIterator;
-
-  kresult = usb_setup_device_iterator (&deviceIterator);
-  if (kresult)
-    return kresult;
-
-  /* This port of libusb uses locations to keep track of devices. */
-  while ((*darwin_device = usb_get_next_device (deviceIterator, &location)) != NULL) {
-    if (location == dev_location)
-      break;
-
-    (**darwin_device)->Release(*darwin_device);
-  }
-
-  IOObjectRelease (deviceIterator);
-
-  if (!(*darwin_device))
-    return kIOReturnNoDevice;
-
-  return kIOReturnSuccess;
-}
-
-
-
 static void darwin_devices_detached (void *ptr, io_iterator_t rem_devices) {
   struct libusb_context *ctx = (struct libusb_context *)ptr;
   struct libusb_device_handle *handle;
@@ -530,17 +503,7 @@ static int darwin_get_config_descriptor(struct libusb_device *dev, uint8_t confi
   if (!priv)
     return LIBUSB_ERROR_OTHER;
 
-  if (!priv->device) {
-    kresult = darwin_get_device (priv->location, &device);
-    if (kresult || !device) {
-      usbi_err (DEVICE_CTX (dev), "could not find device: %s", darwin_error_str (kresult));
-
-      return darwin_to_libusb (kresult);
-    }
-
-    /* don't have to open the device to get a config descriptor */
-  } else
-    device = priv->device;
+  device = priv->device;
 
   kresult = (*device)->GetConfigurationDescriptorPtr (device, config_index, &desc);
   if (kresult == kIOReturnSuccess) {
@@ -785,16 +748,6 @@ static int darwin_open (struct libusb_device_handle *dev_handle) {
   IOReturn kresult;
 
   if (0 == dpriv->open_count) {
-    if (!dpriv->device) {
-      kresult = darwin_get_device (dpriv->location, &darwin_device);
-      if (kresult) {
-        usbi_err (HANDLE_CTX (dev_handle), "could not find device: %s", darwin_error_str (kresult));
-        return darwin_to_libusb (kresult);
-      }
-
-      dpriv->device = darwin_device;
-    }
-
     /* try to open the device */
     kresult = (*(dpriv->device))->USBDeviceOpenSeize (dpriv->device);
 
