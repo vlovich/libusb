@@ -554,9 +554,6 @@ static int darwin_get_config_descriptor(struct libusb_device *dev, uint8_t confi
     *host_endian = 0;
   }
 
-  if (!priv->device)
-    (*device)->Release (device);
-
   return darwin_to_libusb (kresult);
 }
 
@@ -724,6 +721,10 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
 
     /* save our location, we'll need this later */
     priv->location = locationID;
+    if (!priv->device) {
+      priv->device = device;
+      device = NULL;
+    }
     snprintf(priv->sys_path, 28, "%08x-%03i", locationID, address);
 
     ret = usbi_sanitize_device (dev);
@@ -741,6 +742,16 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
 
     usbi_info (ctx, "found device with address %d at %s", dev->device_address, priv->sys_path);
   } while (0);
+
+  if (device) {
+    kern_return_t kresult;
+    kresult = (*(device))->Release(device);
+    if (kresult) {
+      /* Log the fact that we had a problem closing the device */
+      usbi_err (DEVICE_CTX (dev), "Release: %s", darwin_error_str(kresult));
+    }
+    device = NULL;
+  }
 
   if (need_unref)
     libusb_unref_device(dev);
@@ -760,8 +771,6 @@ static int darwin_get_device_list(struct libusb_context *ctx, struct discovered_
 
   while ((device = usb_get_next_device (deviceIterator, &location)) != NULL) {
     (void) process_new_device (ctx, device, location, _discdevs);
-
-    (*(device))->Release(device);
   }
 
   IOObjectRelease(deviceIterator);
@@ -776,13 +785,15 @@ static int darwin_open (struct libusb_device_handle *dev_handle) {
   IOReturn kresult;
 
   if (0 == dpriv->open_count) {
-    kresult = darwin_get_device (dpriv->location, &darwin_device);
-    if (kresult) {
-      usbi_err (HANDLE_CTX (dev_handle), "could not find device: %s", darwin_error_str (kresult));
-      return darwin_to_libusb (kresult);
-    }
+    if (!dpriv->device) {
+      kresult = darwin_get_device (dpriv->location, &darwin_device);
+      if (kresult) {
+        usbi_err (HANDLE_CTX (dev_handle), "could not find device: %s", darwin_error_str (kresult));
+        return darwin_to_libusb (kresult);
+      }
 
-    dpriv->device = darwin_device;
+      dpriv->device = darwin_device;
+    }
 
     /* try to open the device */
     kresult = (*(dpriv->device))->USBDeviceOpenSeize (dpriv->device);
@@ -797,8 +808,6 @@ static int darwin_open (struct libusb_device_handle *dev_handle) {
 
 	break;
       default:
-	(*(dpriv->device))->Release (dpriv->device);
-	dpriv->device = NULL;
 	return darwin_to_libusb (kresult);
       }
     } else {
@@ -808,9 +817,6 @@ static int darwin_open (struct libusb_device_handle *dev_handle) {
 	usbi_err (HANDLE_CTX (dev_handle), "CreateDeviceAsyncEventSource: %s", darwin_error_str(kresult));
 
 	(*(dpriv->device))->USBDeviceClose (dpriv->device);
-	(*(dpriv->device))->Release (dpriv->device);
-
-	dpriv->device = NULL;
 	return darwin_to_libusb (kresult);
       }
 
@@ -874,15 +880,6 @@ static void darwin_close (struct libusb_device_handle *dev_handle) {
 	usbi_err (HANDLE_CTX (dev_handle), "USBDeviceClose: %s", darwin_error_str(kresult));
       }
     }
-
-    kresult = (*(dpriv->device))->Release(dpriv->device);
-    if (kresult) {
-      /* Log the fact that we had a problem closing the file, however failing a
-       * close isn't really an error, so return success anyway */
-      usbi_err (HANDLE_CTX (dev_handle), "Release: %s", darwin_error_str(kresult));
-    }
-
-    dpriv->device = NULL;
   }
 
   /* file descriptors are maintained per-instance */
@@ -1239,6 +1236,18 @@ static int darwin_detach_kernel_driver (struct libusb_device_handle *dev_handle,
 }
 
 static void darwin_destroy_device(struct libusb_device *dev) {
+  struct darwin_device_priv *dpriv = (struct darwin_device_priv *)dev->os_priv;
+  IOReturn kresult;
+
+  if (dpriv->device) {
+    kresult = (*(dpriv->device))->Release(dpriv->device);
+    if (kresult) {
+      /* Log the fact that we had a problem closing the file, however failing a
+       * close isn't really an error, so return success anyway */
+      usbi_err (DEVICE_CTX (dev), "Release: %s", darwin_error_str(kresult));
+    }
+    dpriv->device = NULL;
+  }
 }
 
 static int submit_bulk_transfer(struct usbi_transfer *itransfer) {
