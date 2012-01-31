@@ -1605,6 +1605,8 @@ int API_EXPORTED libusb_init(libusb_context **context)
 		goto err_destroy_mutex;
 	}
 
+	usbi_mutex_init(&ctx->filters_lock, NULL);
+
 	if (context) {
 		*context = ctx;
 	} else if (!usbi_default_context) {
@@ -1659,8 +1661,14 @@ void API_EXPORTED libusb_exit(struct libusb_context *ctx)
 	if (usbi_backend->exit)
 		usbi_backend->exit();
 
+	usbi_mutex_lock(&ctx->filters_lock);
+	free(ctx->filters);
+	ctx->filters = NULL;
+	usbi_mutex_unlock(&ctx->filters_lock);
+
 	usbi_mutex_destroy(&ctx->open_devs_lock);
 	usbi_mutex_destroy(&ctx->usb_devs_lock);
+	usbi_mutex_destroy(&ctx->filters_lock);
 	free(ctx);
 }
 
@@ -1679,6 +1687,65 @@ int API_EXPORTED libusb_has_capability(uint32_t capability)
 		break;
 	}
 	return 0;
+}
+
+/** \ingroup lib
+ * Only process devices matching the requested vid/pid.  If a filter is already set, this replaces it.
+ * \param ctx The context to filter out for (i.e. each context can have a different filter list)
+ * \param vid A pointer to an array of VIDs to use.  A value of -1 will result in the VID check being skipped
+ *            for that entry (i.e. only check the PID or skip altogether if pid is -1 too)
+ * \param pid A pointer to an array of PIDs to use.  A value of -1 will skip the PID check for that entry (i.e.
+ *            will only use the VID to filter or skip the entry altogether if the VID to filter is -1 too)
+ * \param nfilters The number of entries in the 2 arrays (the two arrays must be equal in size).
+ */
+int API_EXPORTED libusb_filter_vid_pid(struct libusb_context *ctx, const int vid[], const int pid[], size_t nfilters)
+{
+	int r = 0;
+	struct vid_pid_filter *new_list;
+
+	USBI_GET_CONTEXT(ctx);
+
+	usbi_mutex_lock(&ctx->filters_lock);
+
+	new_list = realloc(ctx->filters, nfilters * sizeof(struct vid_pid_filter));
+	if (!new_list) {
+		r = LIBUSB_ERROR_NO_MEM;
+		goto cleanup;
+	}
+
+	for (size_t i = 0; i < nfilters; i++) {
+		new_list[i].vid = vid[i];
+		new_list[i].pid = pid[i];
+	}
+	ctx->filters = new_list;
+	ctx->nfilters = nfilters;
+
+cleanup:
+	usbi_mutex_unlock(&ctx->filters_lock);
+	return r;
+}
+
+int usbi_vid_pid_passes_filter(struct libusb_context *ctx, int desc_vid, int desc_pid)
+{
+	int found_in_list = 0;
+
+	// invalid vid/pid is assumed to pass the filter (i.e. cannot
+	// determine vid/pid of the device yet)
+	if (desc_vid <= 0 || desc_pid < 0)
+		return 1;
+
+	usbi_mutex_lock(&ctx->filters_lock);
+	for (size_t i = 0; i < ctx->nfilters; i++) {
+		if (ctx->filters[i].vid == desc_vid || ctx->filters[i].vid == -1) {
+			if (ctx->filters[i].pid == desc_pid || ctx->filters[i].pid == -1) {
+				found_in_list = 1;
+				break;
+			}
+		}
+	}
+	usbi_mutex_unlock(&ctx->filters_lock);
+
+	return found_in_list;
 }
 
 void usbi_log_v(struct libusb_context *ctx, enum usbi_log_level level,

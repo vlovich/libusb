@@ -204,6 +204,11 @@ static inline void usbi_dbg(const char *format, ...)
 
 extern struct libusb_context *usbi_default_context;
 
+struct vid_pid_filter {
+	int vid;
+	int pid;
+};
+
 struct libusb_context {
 	int debug;
 	int debug_fixed;
@@ -257,6 +262,9 @@ struct libusb_context {
 	 * this timerfd is maintained to trigger on the next pending timeout */
 	int timerfd;
 #endif
+	size_t nfilters;
+	struct vid_pid_filter *filters;
+	usbi_mutex_t filters_lock;
 };
 
 #ifdef USBI_TIMERFD_AVAILABLE
@@ -400,6 +408,13 @@ void usbi_remove_pollfd(struct libusb_context *ctx, int fd);
 void usbi_fd_notification(struct libusb_context *ctx);
 
 /* device discovery */
+
+/** should the discovered vid/pid be processed.
+ * if it should be, then this returns 1, otherwise 0.
+ * this is a lenient filter - if the passed in vid/pid aren't valid (i.e. vid <= 0 or
+ * pid < 0), then it is assumed that they pass
+ */
+int usbi_vid_pid_passes_filter(struct libusb_context *ctx, int desc_vid, int desc_pid);
 
 /* we traverse usbfs without knowing how many devices we are going to find.
  * so we create this discovered_devs model which is similar to a linked-list

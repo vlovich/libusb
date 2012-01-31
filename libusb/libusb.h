@@ -904,6 +904,7 @@ enum libusb_capability {
 int LIBUSB_CALL libusb_init(libusb_context **ctx);
 void LIBUSB_CALL libusb_exit(libusb_context *ctx);
 void LIBUSB_CALL libusb_set_debug(libusb_context *ctx, int level);
+int LIBUSB_CALL libusb_filter_vid_pid(libusb_context *ctx, const int vid[], const int pid[], size_t nfilters);
 int LIBUSB_CALL libusb_has_capability(uint32_t capability);
 const char * LIBUSB_CALL libusb_error_name(int errcode);
 
