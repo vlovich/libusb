@@ -585,6 +585,19 @@ static int darwin_cache_device_descriptor (struct libusb_context *ctx, struct li
     req.wLength       = sizeof(priv->dev_descriptor);
     req.pData         = &(priv->dev_descriptor);
 
+    (*(device))->GetDeviceAddress (device, (USBDeviceAddress *)&address);
+    (*(device))->GetDeviceProduct (device, &idProduct);
+    (*(device))->GetDeviceVendor (device, &idVendor);
+    (*(device))->GetDeviceClass (device, &bDeviceClass);
+    (*(device))->GetDeviceSubClass (device, &bDeviceSubClass);
+
+    if (!usbi_vid_pid_passes_filter(ctx, idVendor, idProduct)) {
+        usbi_dbg (ctx, "ignoring filtered-out vendor device %x:%x. skipping device @ %d", idVendor, idProduct, locationID);
+        ret = -1;
+        break;
+    }
+
+    /**** retrieve device descriptors ****/
     /* according to Apple's documentation the device must be open for DeviceRequest but we may not be able to open some
      * devices and Apple's USB Prober doesn't bother to open the device before issuing a descriptor request.  Still,
      * to follow the spec as closely as possible, try opening the device */
@@ -740,7 +753,7 @@ static int process_new_device (struct libusb_context *ctx, usb_device_t **device
     snprintf(priv->sys_path, 20, "%03i-%04x-%04x-%02x-%02x", address, priv->dev_descriptor.idVendor, priv->dev_descriptor.idProduct,
 	     priv->dev_descriptor.bDeviceClass, priv->dev_descriptor.bDeviceSubClass);
 
-    ret = usbi_sanitize_device (dev);
+    ret = usbi_sanitize_device (dev, false);
     if (ret < 0)
       break;
 

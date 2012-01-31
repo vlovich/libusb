@@ -801,10 +801,9 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 	dev->device_address = devaddr;
 
 	if (sysfs_dir) {
-		priv->sysfs_dir = malloc(strlen(sysfs_dir) + 1);
+		priv->sysfs_dir = strdup(sysfs_dir);
 		if (!priv->sysfs_dir)
 			return LIBUSB_ERROR_NO_MEM;
-		strcpy(priv->sysfs_dir, sysfs_dir);
 
 		/* Note speed can contain 1.5, in this case __read_sysfs_attr
 		   will stop parsing at the '.' and return 1 */
@@ -930,6 +929,8 @@ static int enumerate_device(struct libusb_context *ctx,
 	int need_unref = 0;
 	struct libusb_device *dev;
 	int r = 0;
+	int vid;
+	int pid;
 
 	/* FIXME: session ID is not guaranteed unique as addresses can wrap and
 	 * will be reused. instead we should add a simple sysfs attribute with
@@ -945,6 +946,15 @@ static int enumerate_device(struct libusb_context *ctx,
 	} else {
 		usbi_dbg("allocating new device for %d/%d (session %ld)",
 			busnum, devaddr, session_id);
+
+		vid = __read_sysfs_attr(ctx, "%x", sysfs_dir, "idVendor");
+		pid = __read_sysfs_attr(ctx, "%x", sysfs_dir, "idProduct");
+
+		if (!usbi_vid_pid_passes_filter(ctx, vid, pid)) {
+			usbi_dbg("filtering out device %x:%x", vid, pid);
+			return LIBUSB_ERROR_NO_DEVICE;
+		}
+
 		dev = usbi_alloc_device(ctx, session_id);
 		if (!dev)
 			return LIBUSB_ERROR_NO_MEM;
@@ -952,7 +962,7 @@ static int enumerate_device(struct libusb_context *ctx,
 		r = initialize_device(dev, busnum, devaddr, sysfs_dir);
 		if (r < 0)
 			goto out;
-		r = usbi_sanitize_device(dev);
+		r = usbi_sanitize_device(dev, vid <= 0 || pid < 0);
 		if (r < 0)
 			goto out;
 	}

@@ -1046,6 +1046,11 @@ static int init_device(struct libusb_device* dev, struct libusb_device* parent_d
 			safe_closehandle(handle);
 			return LIBUSB_ERROR_NO_DEVICE;
 		}
+		if (!usbi_vid_pid_passes_fillter(conn_info.DeviceDescriptor.idVendor, conn_info.DeviceDescriptor.idProduct)) {
+			usbi_dbg(ctx, "filtering out %x:%x", conn_info.DeviceDescriptor.idVendor, conn_info.DeviceDescriptor.idProduct);
+			safe_closehandle(handle);
+			return LIBUSB_ERROR_NO_DEVICE;
+		}
 		memcpy(&priv->dev_descriptor, &(conn_info.DeviceDescriptor), sizeof(USB_DEVICE_DESCRIPTOR));
 		dev->num_configurations = priv->dev_descriptor.bNumConfigurations;
 		priv->active_config = conn_info.CurrentConfigurationValue;

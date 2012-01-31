@@ -535,7 +535,7 @@ struct libusb_device *usbi_alloc_device(struct libusb_context *ctx,
 /* Perform some final sanity checks on a newly discovered device. If this
  * function fails (negative return code), the device should not be added
  * to the discovered device list. */
-int usbi_sanitize_device(struct libusb_device *dev)
+int usbi_sanitize_device(struct libusb_device *dev, int check_filter)
 {
 	int r;
 	unsigned char raw_desc[DEVICE_DESC_LENGTH];
@@ -545,6 +545,26 @@ int usbi_sanitize_device(struct libusb_device *dev)
 	r = usbi_backend->get_device_descriptor(dev, raw_desc, &host_endian);
 	if (r < 0)
 		return r;
+
+	if (check_filter) {
+		uint16_t vid;
+		uint16_t pid;
+
+		struct libusb_device_descriptor *desc = (struct libusb_device_descriptor *)raw_desc;
+
+		if (!host_endian) {
+			vid = libusb_le16_to_cpu(desc->idVendor);
+			pid = libusb_le16_to_cpu(desc->idProduct);
+		} else {
+			vid = desc->idVendor;
+			pid = desc->idProduct;
+		}
+
+		if (!usbi_vid_pid_passes_filter(DEVICE_CTX(dev), vid, pid)) {
+			usbi_dbg (DEVICE_CTX(dev), "ignoring filtered-out device %x:%x", vid, pid);
+			return LIBUSB_ERROR_NO_DEVICE;
+		}
+	}
 
 	num_configurations = raw_desc[DEVICE_DESC_LENGTH - 1];
 	if (num_configurations > USB_MAXCONFIG) {
