@@ -384,7 +384,7 @@ static int _open_sysfs_attr(struct libusb_device *dev, const char *attr)
 }
 
 /* Note only suitable for attributes which always read >= 0, < 0 is error */
-static int __read_sysfs_attr(struct libusb_context *ctx,
+static int __read_sysfs_attr(struct libusb_context *ctx, const char *fmt,
 	const char *devname, const char *attr)
 {
 	char filename[PATH_MAX];
@@ -404,7 +404,7 @@ static int __read_sysfs_attr(struct libusb_context *ctx,
 		return LIBUSB_ERROR_IO;
 	}
 
-	r = fscanf(f, "%d", &value);
+	r = fscanf(f, fmt, &value);
 	fclose(f);
 	if (r != 1) {
 		usbi_err(ctx, "fscanf %s returned %d, errno=%d", attr, r, errno);
@@ -808,7 +808,7 @@ static int initialize_device(struct libusb_device *dev, uint8_t busnum,
 
 		/* Note speed can contain 1.5, in this case __read_sysfs_attr
 		   will stop parsing at the '.' and return 1 */
-		speed = __read_sysfs_attr(DEVICE_CTX(dev), sysfs_dir, "speed");
+		speed = __read_sysfs_attr(DEVICE_CTX(dev), "%d", sysfs_dir, "speed");
 		if (speed >= 0) {
 			switch (speed) {
 			case     1: dev->speed = LIBUSB_SPEED_LOW; break;
@@ -1065,11 +1065,11 @@ static int sysfs_scan_device(struct libusb_context *ctx,
 
 	usbi_dbg("scan %s", devname);
 
-	busnum = __read_sysfs_attr(ctx, devname, "busnum");
+	busnum = __read_sysfs_attr(ctx, "%d", devname, "busnum");
 	if (busnum < 0)
 		return busnum;
 
-	devaddr = __read_sysfs_attr(ctx, devname, "devnum");
+	devaddr = __read_sysfs_attr(ctx, "%d", devname, "devnum");
 	if (devaddr < 0)
 		return devaddr;
 
